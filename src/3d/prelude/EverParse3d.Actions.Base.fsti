@@ -152,12 +152,14 @@ val validate_with_action_t
       (#wk: _)
       (#k:parser_kind nz wk)
       (#t:Type)
+      (#ret:Type0) //return type of the validator
       (p:parser k t)
       (liveness_inv:slice_inv)
       (disj:disjointness_pre)
       (l:eloc)
       (has_action:bool)
       (allow_reading:bool)
+      (f:t -> GTot ret) //ghost function that specifies which (subset of) parsed values are returned by the validator
     : Type0
 
 inline_for_extraction noextract
@@ -171,8 +173,10 @@ val validate_eta
       (#[@@@erasable] disj:disjointness_pre)
       (#[@@@erasable] l:eloc)
       (#has_action #allow_reading:bool)
-      (v: validate_with_action_t p inv disj l has_action allow_reading)
-: Tot (validate_with_action_t p inv disj l has_action allow_reading)
+      (#ret:Type0)
+      (#f:t -> GTot ret)
+      (v: validate_with_action_t p inv disj l has_action allow_reading f)
+: Tot (validate_with_action_t p inv disj l has_action allow_reading f)
 
 inline_for_extraction noextract
 val act_with_comment
@@ -204,8 +208,10 @@ val validate_without_reading
       (#[@@@erasable] disj:disjointness_pre)
       (#[@@@erasable] l:eloc)
       (#has_action #allow_reading:bool)
-      (v: validate_with_action_t p inv disj l has_action allow_reading)
-: Tot (validate_with_action_t p inv disj l has_action false)
+      (#ret: Type0)
+      (#f:t -> GTot ret)
+      (v: validate_with_action_t p inv disj l has_action allow_reading f)
+: Tot (validate_with_action_t p inv disj l has_action false f)
 
 inline_for_extraction noextract
 val validate_with_success_action
@@ -219,13 +225,15 @@ val validate_with_success_action
       (#[@@@erasable] disj1:disjointness_pre)
       (#[@@@erasable] l1:eloc)
       (#has_action #allow_reading:bool)
-      (v1:validate_with_action_t p1 inv1 disj1 l1 has_action allow_reading)
+      (#ret: Type0)
+      (#f:t1 -> GTot ret)
+      (v1:validate_with_action_t p1 inv1 disj1 l1 has_action allow_reading f)
       (#[@@@erasable] inv2:slice_inv)
       (#[@@@erasable] disj2:disjointness_pre)
       (#[@@@erasable] l2:eloc)
       (#b #rt:bool)
       (a:action inv2 disj2 l2 b rt bool)
-  : validate_with_action_t p1 (conj_inv inv1 inv2) (conj_disjointness disj1 disj2) (l1 `eloc_union` l2) true false
+  : validate_with_action_t p1 (conj_inv inv1 inv2) (conj_disjointness disj1 disj2) (l1 `eloc_union` l2) true false f
 
 inline_for_extraction noextract
 val validate_with_error_handler
@@ -240,12 +248,14 @@ val validate_with_error_handler
       (#[@@@erasable] disj:disjointness_pre)
       (#[@@@erasable] l1:eloc)
       (#has_action #ar:_)
-      (v1:validate_with_action_t p1 inv1 disj l1 has_action ar)
-  : validate_with_action_t p1 inv1 disj l1 has_action ar
+      (#ret: Type0)
+      (#f:t1 -> GTot ret)
+      (v1:validate_with_action_t p1 inv1 disj l1 has_action ar f)
+  : validate_with_action_t p1 inv1 disj l1 has_action ar f
 
 inline_for_extraction noextract
 val validate_ret
-  : validate_with_action_t (parse_ret ()) true_inv disjointness_trivial eloc_none false true
+  : validate_with_action_t (parse_ret ()) true_inv disjointness_trivial eloc_none false true (fun _ -> ())
 
 inline_for_extraction noextract
 val validate_pair
@@ -259,7 +269,9 @@ val validate_pair
        (#[@@@erasable] disj1:disjointness_pre)
        (#[@@@erasable] l1:eloc)
        (#has_action1 #allow_reading1:bool)
-       (v1:validate_with_action_t p1 inv1 disj1 l1 has_action1 allow_reading1)
+       (#ret1: Type0)
+       (#f1: t1 -> GTot ret1)
+       (v1:validate_with_action_t p1 inv1 disj1 l1 has_action1 allow_reading1 f1)
        (#nz2:_)
        (#wk2: _)
        (#k2:parser_kind nz2 wk2)
@@ -270,7 +282,9 @@ val validate_pair
        (#[@@@erasable] disj2:disjointness_pre)
        (#[@@@erasable] l2:eloc)
        (#has_action2 #allow_reading2:bool)
-       (v2:validate_with_action_t p2 inv2 disj2 l2 has_action2 allow_reading2)
+       (#ret2: Type0)
+       (#f2: t2 -> GTot ret2)
+       (v2:validate_with_action_t p2 inv2 disj2 l2 has_action2 allow_reading2 f2)
   : validate_with_action_t
       (p1 `parse_pair` p2)
       (conj_inv inv1 inv2)
@@ -278,6 +292,42 @@ val validate_pair
       (l1 `eloc_union` l2)
       (has_action1 || has_action2)
       false
+      (fun (_, x2) -> f2 x2)
+
+inline_for_extraction noextract
+val validate_dep_pair_gen 
+      (name1: string)
+      (#nz1:_)
+      (#k1:parser_kind nz1 WeakKindStrongPrefix)
+      (#t1:Type)
+      (#[@@@erasable] p1:parser k1 t1)
+      (#[@@@erasable] inv1:slice_inv)
+      (#[@@@erasable] disj1:disjointness_pre)
+      (#[@@@erasable] l1:eloc)
+      (#has_action1:_)
+      (#ret1: Type0)
+      (#f1: t1 -> GTot ret1)
+      (v1:validate_with_action_t p1 inv1 disj1 l1 has_action1 true f1)
+      (#nz2:_)
+      (#wk2: _)
+      (#k2:parser_kind nz2 wk2)
+      (#[@@@erasable] t2:ret1 -> Type)
+      (#[@@@erasable] p2:(x:ret1 -> parser k2 (t2 x)))
+      (#[@@@erasable] inv2:slice_inv)
+      (#[@@@erasable] disj2:disjointness_pre)
+      (#[@@@erasable] l2:eloc)
+      (#has_action2 #allow_reading2:bool)
+      (#ret2: Type0) //the return type of the second parser must not depend on the values read by the first parser (for extraction)
+      (#f2: (x1:ret1) -> (x2: t2 x1) -> GTot ret2)
+      (v2:(x: ret1 -> validate_with_action_t (p2 x) inv2 disj2 l2 has_action2 allow_reading2 (f2 x)))
+  : validate_with_action_t
+      (p1 `parse_dep_pair` (fun (x1:t1) -> p2 (f1 x1)))
+      (conj_inv inv1 inv2)
+      (conj_disjointness disj1 disj2)
+      (l1 `eloc_union` l2)
+      (has_action1 || has_action2)
+      false
+      (fun (| x1, x2 |) -> f2 (f1 x1) x2)
 
 inline_for_extraction noextract
 val validate_dep_pair
@@ -290,7 +340,7 @@ val validate_dep_pair
       (#[@@@erasable] disj1:disjointness_pre)
       (#[@@@erasable] l1:eloc)
       (#has_action1:_)
-      (v1:validate_with_action_t p1 inv1 disj1 l1 has_action1 true)
+      (v1:validate_with_action_t p1 inv1 disj1 l1 has_action1 true (fun _ -> ()))
       (r1: leaf_reader p1)
       (#nz2:_)
       (#wk2: _)
@@ -301,7 +351,9 @@ val validate_dep_pair
       (#[@@@erasable] disj2:disjointness_pre)
       (#[@@@erasable] l2:eloc)
       (#has_action2 #allow_reading2:bool)
-      (v2:(x:t1 -> validate_with_action_t (p2 x) inv2 disj2 l2 has_action2 allow_reading2))
+      (#ret2: Type0) //the return type of the second parser must not depend on the values read by the first parser (for extraction)
+      (#f2: (x1:t1) -> (x2: t2 x1) -> GTot ret2)
+      (v2:(x:t1 -> validate_with_action_t (p2 x) inv2 disj2 l2 has_action2 allow_reading2 (f2 x)))
   : validate_with_action_t
       (p1 `parse_dep_pair` p2)
       (conj_inv inv1 inv2)
@@ -309,6 +361,55 @@ val validate_dep_pair
       (l1 `eloc_union` l2)
       (has_action1 || has_action2)
       false
+      (fun (| x1, x2 |) -> f2 x1 x2)
+
+inline_for_extraction noextract
+val validate_return
+    (#t: Type0)
+    (x: t)
+  : validate_with_action_t (parse_ret ()) true_inv disjointness_trivial eloc_none false true (fun _ -> x)
+
+inline_for_extraction noextract
+val validate_dep_pair_with_refinement_and_action_gen
+      (p1_is_constant_size_without_actions: bool)
+      (name1: string)
+      (#nz1:_)
+      (#k1:parser_kind nz1 WeakKindStrongPrefix)
+      (#t1:Type)
+      (#[@@@erasable] p1:parser k1 t1)
+      (#[@@@erasable] inv1:slice_inv)
+      (#[@@@erasable] disj1:disjointness_pre)
+      (#[@@@erasable] l1:eloc)
+      (#has_action1:bool)
+      (#ret1: Type0)
+      (#f1: t1 -> Tot ret1) // TODO: cannot use GTot here, not sure if this can be erased
+      (v1:validate_with_action_t p1 inv1 disj1 l1 has_action1 true f1)
+      (f: ret1 -> bool)
+      (#[@@@erasable] inv1':slice_inv)
+      (#[@@@erasable] disj1':disjointness_pre)
+      (#[@@@erasable] l1':eloc)
+      (#b #rt:_)
+      (a:ret1 -> action inv1' disj1' l1' b rt bool)
+      (#nz2:_)
+      (#wk2: _)
+      (#k2:parser_kind nz2 wk2)
+      (#[@@@erasable] t2:refine t1 (fun x1 -> f (f1 x1)) -> Type)
+      (#[@@@erasable] p2:(x:refine t1 (fun x1 -> f (f1 x1)) -> parser k2 (t2 x)))
+      (#[@@@erasable] inv2:slice_inv)
+      (#[@@@erasable] disj2:disjointness_pre)
+      (#[@@@erasable] l2:eloc)
+      (#has_action2 #allow_reading2:bool)
+      (#ret2: Type0) //the return type of the second parser must not depend on the values read by the first parser (for extraction)
+      (#f2: (x1:refine t1 (fun x1 -> f (f1 x1))) -> (x2: t2 x1) -> GTot ret2)
+      (v2:(x:refine t1 (fun x1 -> f (f1 x1)) -> validate_with_action_t (p2 x) inv2 disj2 l2 has_action2 allow_reading2 (f2 x)))
+  : validate_with_action_t
+      ((p1 `parse_filter` (fun (x1:t1) -> f (f1 x1))) `parse_dep_pair` p2)
+      (conj_inv inv1 (conj_inv inv1' inv2))
+      (conj_disjointness disj1 (conj_disjointness disj1' disj2))
+      (l1 `eloc_union` (l1' `eloc_union` l2))
+      true
+      false
+      (fun (| x1, x2 |) -> f2 x1 x2)
 
 inline_for_extraction noextract
 val validate_dep_pair_with_refinement_and_action
@@ -322,7 +423,7 @@ val validate_dep_pair_with_refinement_and_action
       (#[@@@erasable] disj1:disjointness_pre)
       (#[@@@erasable] l1:eloc)
       (#has_action1:bool)
-      (v1:validate_with_action_t p1 inv1 disj1 l1 has_action1 true)
+      (v1:validate_with_action_t p1 inv1 disj1 l1 has_action1 true (fun _ -> ()))
       (r1: leaf_reader p1)
       (f: t1 -> bool)
       (#[@@@erasable] inv1':slice_inv)
@@ -339,7 +440,9 @@ val validate_dep_pair_with_refinement_and_action
       (#[@@@erasable] disj2:disjointness_pre)
       (#[@@@erasable] l2:eloc)
       (#has_action2 #allow_reading2:bool)
-      (v2:(x:refine _ f -> validate_with_action_t (p2 x) inv2 disj2 l2 has_action2 allow_reading2))
+      (#ret2: Type0)
+      (#f2: (x1:refine _ f) -> (x2: t2 x1) -> GTot ret2)
+      (v2:(x:refine _ f -> validate_with_action_t (p2 x) inv2 disj2 l2 has_action2 allow_reading2 (f2 x)))
   : validate_with_action_t
       ((p1 `parse_filter` f) `parse_dep_pair` p2)
       (conj_inv inv1 (conj_inv inv1' inv2))
@@ -347,6 +450,46 @@ val validate_dep_pair_with_refinement_and_action
       (l1 `eloc_union` (l1' `eloc_union` l2))
       true
       false
+      (fun (| x1, x2 |) -> f2 x1 x2)
+
+inline_for_extraction noextract
+val validate_dep_pair_with_action_gen
+      (#nz1:_)
+      (#k1:parser_kind nz1 WeakKindStrongPrefix)
+      (#t1:Type)
+      (#[@@@erasable] p1:parser k1 t1)
+      (#[@@@erasable] inv1:slice_inv)
+      (#[@@@erasable] disj1:disjointness_pre)
+      (#[@@@erasable] l1:eloc)
+      (#has_action1:_)
+      (#ret1: Type0)
+      (#f1: t1 -> GTot ret1)
+      (v1:validate_with_action_t p1 inv1 disj1 l1 has_action1 true f1)
+      (#[@@@erasable] inv1':slice_inv)
+      (#[@@@erasable] disj1':disjointness_pre)
+      (#[@@@erasable] l1':eloc)
+      (#b #rt:_)
+      (a:ret1 -> action inv1' disj1' l1' b rt bool)
+      (#nz2:_)
+      (#wk2: _)
+      (#k2:parser_kind nz2 wk2)
+      (#[@@@erasable] t2:ret1 -> Type)
+      (#[@@@erasable] p2:(x:ret1 -> parser k2 (t2 x)))
+      (#[@@@erasable] inv2:slice_inv)
+      (#[@@@erasable] disj2:disjointness_pre)
+      (#[@@@erasable] l2:eloc)
+      (#has_action2 #allow_reading2:_)
+      (#ret2: Type0)
+      (#f2: (x1:ret1) -> (x2: t2 x1) -> GTot ret2)
+      (v2:(x:ret1 -> validate_with_action_t (p2 x) inv2 disj2 l2 has_action2 allow_reading2 (f2 x)))
+  : validate_with_action_t
+      (p1 `(parse_dep_pair #nz1)` (fun (x1: t1) -> p2 (f1 x1)))
+      (conj_inv inv1 (conj_inv inv1' inv2))
+      (conj_disjointness disj1 (conj_disjointness disj1' disj2))
+      (l1 `eloc_union` (l1' `eloc_union` l2))
+      true
+      false
+      (fun (| x1, x2 |) -> f2 (f1 x1) x2)
 
 inline_for_extraction noextract
 val validate_dep_pair_with_action
@@ -358,7 +501,7 @@ val validate_dep_pair_with_action
       (#[@@@erasable] disj1:disjointness_pre)
       (#[@@@erasable] l1:eloc)
       (#has_action1:_)
-      (v1:validate_with_action_t p1 inv1 disj1 l1 has_action1 true)
+      (v1:validate_with_action_t p1 inv1 disj1 l1 has_action1 true (fun _ -> ()))
       (r1: leaf_reader p1)
       (#[@@@erasable] inv1':slice_inv)
       (#[@@@erasable] disj1':disjointness_pre)
@@ -374,7 +517,9 @@ val validate_dep_pair_with_action
       (#[@@@erasable] disj2:disjointness_pre)
       (#[@@@erasable] l2:eloc)
       (#has_action2 #allow_reading2:_)
-      (v2:(x:t1 -> validate_with_action_t (p2 x) inv2 disj2 l2 has_action2 allow_reading2))
+      (#ret2: Type0)
+      (#f2: (x1:t1) -> (x2: t2 x1) -> GTot ret2)
+      (v2:(x:t1 -> validate_with_action_t (p2 x) inv2 disj2 l2 has_action2 allow_reading2 (f2 x)))
   : validate_with_action_t
       (p1 `(parse_dep_pair #nz1)` p2)
       (conj_inv inv1 (conj_inv inv1' inv2))
@@ -382,6 +527,45 @@ val validate_dep_pair_with_action
       (l1 `eloc_union` (l1' `eloc_union` l2))
       true
       false
+      (fun (| x1, x2 |) -> f2 x1 x2)
+
+inline_for_extraction noextract
+val validate_dep_pair_with_refinement_gen
+      (p1_is_constant_size_without_actions: bool)
+      (name1: string)
+      (#nz1:_)
+      (#k1:parser_kind nz1 WeakKindStrongPrefix)
+      (#t1:Type)
+      (#[@@@erasable] p1:parser k1 t1)
+      (#[@@@erasable] inv1:slice_inv)
+      (#[@@@erasable] disj1:disjointness_pre)      
+      (#[@@@erasable] l1:eloc)
+      (#has_action1:_)
+      (#ret1: Type0)
+      (#f1: t1 -> Tot ret1)
+      (v1:validate_with_action_t p1 inv1 disj1 l1 has_action1 true f1)
+      (f: ret1 -> bool)
+      (#nz2:_)
+      (#wk2: _)
+      (#k2:parser_kind nz2 wk2)
+      (#[@@@erasable] t2:refine t1 (fun x1 -> f (f1 x1)) -> Type)
+      (#[@@@erasable] p2:(x:refine t1 (fun x1 -> f (f1 x1)) -> parser k2 (t2 x)))
+      (#[@@@erasable] inv2:slice_inv)
+      (#[@@@erasable] disj2:disjointness_pre)
+      (#[@@@erasable] l2:eloc)
+      (#allow_reading2:bool)
+      (#has_action2:_)
+      (#ret2: Type0)
+      (#f2: (x1:refine t1 (fun x1 -> f (f1 x1))) -> (x2: t2 x1) -> GTot ret2)
+      (v2:(x:refine t1 (fun x1 -> f (f1 x1)) -> validate_with_action_t (p2 x) inv2 disj2 l2 has_action2 allow_reading2 (f2 x)))
+  : validate_with_action_t
+      ((p1 `parse_filter` (fun x1 -> f (f1 x1))) `parse_dep_pair` p2)
+      (conj_inv inv1 inv2)
+      (conj_disjointness disj1 disj2)
+      (l1 `eloc_union` l2)
+      (has_action1 || has_action2)
+      false
+      (fun (| x1, x2 |) -> f2 x1 x2)
 
 inline_for_extraction noextract
 val validate_dep_pair_with_refinement
@@ -395,7 +579,7 @@ val validate_dep_pair_with_refinement
       (#[@@@erasable] disj1:disjointness_pre)      
       (#[@@@erasable] l1:eloc)
       (#has_action1:_)
-      (v1:validate_with_action_t p1 inv1 disj1 l1 has_action1 true)
+      (v1:validate_with_action_t p1 inv1 disj1 l1 has_action1 true (fun _ -> ()))
       (r1: leaf_reader p1)
       (f: t1 -> bool)
       (#nz2:_)
@@ -408,7 +592,9 @@ val validate_dep_pair_with_refinement
       (#[@@@erasable] l2:eloc)
       (#allow_reading2:bool)
       (#has_action2:_)
-      (v2:(x:refine _ f -> validate_with_action_t (p2 x) inv2 disj2 l2 has_action2 allow_reading2))
+      (#ret2: Type0)
+      (#f2: (x1:refine _ f) -> (x2: t2 x1) -> GTot ret2)
+      (v2:(x:refine _ f -> validate_with_action_t (p2 x) inv2 disj2 l2 has_action2 allow_reading2 (f2 x)))
   : validate_with_action_t
       ((p1 `parse_filter` f) `parse_dep_pair` p2)
       (conj_inv inv1 inv2)
@@ -416,6 +602,26 @@ val validate_dep_pair_with_refinement
       (l1 `eloc_union` l2)
       (has_action1 || has_action2)
       false
+      (fun (| x1, x2 |) -> f2 x1 x2)
+
+inline_for_extraction noextract
+val validate_filter_gen
+       (name: string)
+       (#nz:_)
+       (#k:parser_kind nz WeakKindStrongPrefix)
+       (#t:Type)
+       (#[@@@erasable] p:parser k t)
+       (#[@@@erasable] inv:slice_inv)
+       (#[@@@erasable] disj:disjointness_pre)                   
+       (#[@@@erasable] l:eloc)
+       (#has_action:_)
+       (#ret:Type0)
+       (#f:t -> Tot ret)
+       (v:validate_with_action_t p inv disj l has_action true f)
+       (pred:ret -> bool)
+       (cr:string)
+       (cf:string)
+  : validate_with_action_t (p `parse_filter` (fun x -> pred (f x))) inv disj l has_action false f
 
 inline_for_extraction noextract
 val validate_filter
@@ -428,12 +634,43 @@ val validate_filter
        (#[@@@erasable] disj:disjointness_pre)                   
        (#[@@@erasable] l:eloc)
        (#has_action:_)
-       (v:validate_with_action_t p inv disj l has_action true)
+       (v:validate_with_action_t p inv disj l has_action true (fun _ -> ()))
        (r:leaf_reader p)
        (f:t -> bool)
        (cr:string)
        (cf:string)
-  : validate_with_action_t (p `parse_filter` f) inv disj l has_action false
+  : validate_with_action_t (p `parse_filter` f) inv disj l has_action false (fun _ -> ())
+
+inline_for_extraction noextract
+val validate_filter_with_action_gen
+       (name: string)
+       (#nz:_)
+       (#k:parser_kind nz WeakKindStrongPrefix)
+       (#t:Type)
+       (#[@@@erasable] p:parser k t)
+       (#[@@@erasable] inv:slice_inv)
+       (#[@@@erasable] disj:disjointness_pre)                   
+       (#[@@@erasable] l:eloc)
+       (#has_action:_)
+       (#ret:Type0)
+       (#f:t -> Tot ret)
+       (v:validate_with_action_t p inv disj l has_action true f)
+       (pred:ret -> bool)
+       (cr:string)
+       (cf:string)
+       (#b #rt:bool)
+       (#[@@@erasable] inva:slice_inv)
+       (#[@@@erasable] disja:disjointness_pre)                   
+       (#[@@@erasable] la:eloc)
+       (a: ret -> action inva disja la b rt bool)
+  : validate_with_action_t #nz
+      (p `parse_filter` (fun x -> pred (f x)))
+      (conj_inv inv inva)
+      (conj_disjointness disj disja)
+      (eloc_union l la)
+      true
+      false
+      f
 
 inline_for_extraction noextract
 val validate_filter_with_action
@@ -446,7 +683,7 @@ val validate_filter_with_action
        (#[@@@erasable] disj:disjointness_pre)                   
        (#[@@@erasable] l:eloc)
        (#has_action:_)
-       (v:validate_with_action_t p inv disj l has_action true)
+       (v:validate_with_action_t p inv disj l has_action true (fun _ -> ()))
        (r:leaf_reader p)
        (f:t -> bool)
        (cr:string)
@@ -463,6 +700,35 @@ val validate_filter_with_action
       (eloc_union l la)
       true
       false
+      (fun _ -> ())
+
+inline_for_extraction noextract
+val validate_with_dep_action_gen
+       (name: string)
+       (#nz:_)
+       (#k:parser_kind nz WeakKindStrongPrefix)
+       (#t:Type)
+       (#[@@@erasable] p:parser k t)
+       (#[@@@erasable] inv:slice_inv)
+       (#[@@@erasable] disj:disjointness_pre)                   
+       (#[@@@erasable] l:eloc)
+       (#has_action:_)
+       (#ret:Type0)
+       (#f:t -> Tot ret)
+       (v:validate_with_action_t p inv disj l has_action true f)
+       (#b #rt:bool)
+       (#[@@@erasable] inva:slice_inv)
+       (#[@@@erasable] disja:disjointness_pre)                   
+       (#[@@@erasable] la:eloc)
+       (a: ret -> action inva disja la b rt bool)
+  : validate_with_action_t #nz
+      p
+      (conj_inv inv inva)
+      (conj_disjointness disj disja)
+      (eloc_union l la)
+      true
+      false
+      f
 
 inline_for_extraction noextract
 val validate_with_dep_action
@@ -475,7 +741,7 @@ val validate_with_dep_action
        (#[@@@erasable] disj:disjointness_pre)                   
        (#[@@@erasable] l:eloc)
        (#has_action:_)
-       (v:validate_with_action_t p inv disj l has_action true)
+       (v:validate_with_action_t p inv disj l has_action true (fun _ -> ()))
        (r:leaf_reader p)
        (#b #rt:bool)
        (#[@@@erasable] inva:slice_inv)
@@ -489,6 +755,7 @@ val validate_with_dep_action
       (eloc_union l la)
       true
       false
+      (fun _ -> ())
 
 inline_for_extraction noextract
 val validate_weaken_left
@@ -502,11 +769,13 @@ val validate_weaken_left
        (#[@@@erasable] l:eloc)
        (#allow_reading:bool)
        (#has_action:_)
-       (v:validate_with_action_t p inv disj l has_action allow_reading)
+       (#ret:Type0)
+       (#f:t -> Tot ret)
+       (v:validate_with_action_t p inv disj l has_action allow_reading f)
        (#nz':_)
        (#wk': _)
        (k':parser_kind nz' wk')
-  : validate_with_action_t (parse_weaken_left p k') inv disj l has_action allow_reading
+  : validate_with_action_t (parse_weaken_left p k') inv disj l has_action allow_reading f
 
 inline_for_extraction noextract
 val validate_weaken_right
@@ -520,16 +789,18 @@ val validate_weaken_right
        (#[@@@erasable] l:eloc)
        (#allow_reading:bool)
        (#has_action:_)
-       (v:validate_with_action_t p inv disj l has_action allow_reading)
+       (#ret:Type0)
+       (#f:t -> Tot ret)
+       (v:validate_with_action_t p inv disj l has_action allow_reading f)
        (#nz':_)
        (#wk': _)
        (k':parser_kind nz' wk')
-  : validate_with_action_t (parse_weaken_right p k') inv disj l has_action allow_reading
+  : validate_with_action_t (parse_weaken_right p k') inv disj l has_action allow_reading f
 
 inline_for_extraction noextract
 val validate_impos
        (_:unit)
-  : validate_with_action_t (parse_impos ()) true_inv disjointness_trivial eloc_none false true
+  : validate_with_action_t (parse_impos ()) true_inv disjointness_trivial eloc_none false true (fun _ -> ())
 
 noextract inline_for_extraction
 val validate_ite
@@ -548,9 +819,12 @@ val validate_ite
        (#[@@@erasable] l2:eloc)
        (#ha2 #ar2:_)
        ([@@@erasable] p1:squash e -> parser k (a()))
-       (v1:(squash e -> validate_with_action_t (p1()) inv1 disj1 l1 ha1 ar1))
+       (#ret:Type0) //the return type of both branches must be the same
+       (#f1:squash e -> a() -> GTot ret)
+       (v1:(squash e -> validate_with_action_t (p1()) inv1 disj1 l1 ha1 ar1 (f1())))
        ([@@@erasable] p2:squash (not e) -> parser k (b()))
-       (v2:(squash (not e) -> validate_with_action_t (p2()) inv2 disj2 l2 ha2 ar2))
+       (#f2:squash (not e) -> b() -> GTot ret)
+       (v2:(squash (not e) -> validate_with_action_t (p2()) inv2 disj2 l2 ha2 ar2 (f2())))
   : validate_with_action_t
       (parse_ite e p1 p2)
       (conj_inv inv1 inv2)
@@ -558,6 +832,7 @@ val validate_ite
       (l1 `eloc_union` l2)
       (ha1 || ha2)
       false
+      (fun (x: t_ite e a b) -> if e then (f1()) x else (f2()) x)
 
 noextract inline_for_extraction
 val validate_nlist
@@ -571,8 +846,10 @@ val validate_nlist
        (#[@@@erasable] disj:disjointness_pre)                   
        (#[@@@erasable] l:eloc)
        (#ha #allow_reading:bool)
-       (v: validate_with_action_t p inv disj l ha allow_reading)
-: validate_with_action_t (parse_nlist n n_is_const p) inv disj l ha false
+       (#ret:Type0)
+       (#f:t -> GTot ret)
+       (v: validate_with_action_t p inv disj l ha allow_reading f)
+: validate_with_action_t (parse_nlist n n_is_const p) inv disj l ha false (fun _ -> ()) // nlist validator does not return (would incur heap-allocation)
 
 noextract inline_for_extraction
 val validate_nlist_constant_size_without_actions
@@ -587,8 +864,10 @@ val validate_nlist_constant_size_without_actions
        (#[@@@erasable] disj:disjointness_pre)                   
        (#[@@@erasable] l:eloc)
        (#allow_reading:bool)
-       (v: validate_with_action_t p inv disj l false allow_reading)
-: Tot (validate_with_action_t (parse_nlist n n_is_const p) inv disj l false false)
+       (#ret:Type0)
+       (#f:t -> GTot ret)
+       (v: validate_with_action_t p inv disj l false allow_reading f)
+: Tot (validate_with_action_t (parse_nlist n n_is_const p) inv disj l false false (fun _ -> ())) // nlist validator does not return (would incur heap-allocation)
 
 noextract inline_for_extraction
 val validate_t_at_most
@@ -602,8 +881,10 @@ val validate_t_at_most
        (#[@@@erasable] disj:disjointness_pre)                   
        (#[@@@erasable] l:eloc)
        (#ha #ar:_)
-       (v:validate_with_action_t p inv disj l ha ar)
-  : Tot (validate_with_action_t (parse_t_at_most n p) inv disj l ha false)
+       (#ret:Type0)
+       (#f:t -> GTot ret)
+       (v:validate_with_action_t p inv disj l ha ar f)
+  : Tot (validate_with_action_t (parse_t_at_most n p) inv disj l ha false (fun _ -> ())) // t_at_most validator does not return
 
 noextract inline_for_extraction
 val validate_t_exact
@@ -617,8 +898,10 @@ val validate_t_exact
        (#[@@@erasable] disj:disjointness_pre)                   
        (#[@@@erasable] l:eloc)
        (#ha #ar:_)
-       (v:validate_with_action_t p inv disj l ha ar)
-  : Tot (validate_with_action_t (parse_t_exact n p) inv disj l ha false)
+       (#ret:Type0)
+       (#f:t -> GTot ret)
+       (v:validate_with_action_t p inv disj l ha ar f)
+  : Tot (validate_with_action_t (parse_t_exact n p) inv disj l ha false (fun _ -> ())) // t_exact validator does not return
 
 inline_for_extraction noextract
 val validate_with_comment
@@ -632,9 +915,11 @@ val validate_with_comment
        (#[@@@erasable] disj:disjointness_pre)                   
        (#[@@@erasable] l:eloc)
        (#ha #allow_reading:bool)
-       (v:validate_with_action_t p inv disj l ha allow_reading)
-  : validate_with_action_t p inv disj l ha allow_reading
-
+       (#ret:Type0)
+       (#f:t -> GTot ret)
+       (v:validate_with_action_t p inv disj l ha allow_reading f)
+  : validate_with_action_t p inv disj l ha allow_reading f
+ 
 inline_for_extraction noextract
 val validate_weaken_inv_loc
        (#nz:_)
@@ -649,8 +934,10 @@ val validate_weaken_inv_loc
        ([@@@erasable] inv':slice_inv{inv' `inv_implies` inv})
        ([@@@erasable] disj':disjointness_pre { disj' `imp_disjointness` disj })
        ([@@@erasable] l':eloc{l' `eloc_includes` l})
-       (v:validate_with_action_t p inv disj l ha allow_reading)
-  : Tot (validate_with_action_t p inv' disj' l' ha allow_reading)
+       (#ret:Type0)
+       (#f:t -> GTot ret)
+       (v:validate_with_action_t p inv disj l ha allow_reading f)
+  : Tot (validate_with_action_t p inv' disj' l' ha allow_reading f)
 
 inline_for_extraction noextract
 val read_filter
@@ -667,16 +954,17 @@ val read_impos
     : leaf_reader (parse_impos())
 
 inline_for_extraction
-let validator #nz #wk (#k:parser_kind nz wk) (#t:Type) (p:parser k t)
-  = validate_with_action_t p true_inv disjointness_trivial eloc_none false true
+let validator #nz #wk (#k:parser_kind nz wk) (#t:Type) (p:parser k t) (#ret:Type0) (f:t -> GTot ret)
+  = validate_with_action_t p true_inv disjointness_trivial eloc_none false true f
 
 inline_for_extraction
-let validator_maybe_action #nz #wk (#k:parser_kind nz wk) (#t:Type) (p:parser k t) (has_action:bool)
-  = validate_with_action_t p true_inv disjointness_trivial eloc_none has_action true
+let validator_maybe_action #nz #wk (#k:parser_kind nz wk) (#t:Type) (p:parser k t) (has_action:bool) 
+  (#ret:Type0) (f:t -> GTot ret)
+  = validate_with_action_t p true_inv disjointness_trivial eloc_none has_action true f
 
 inline_for_extraction noextract
 val validate____UINT8
-  : validator parse____UINT8
+  : validator parse____UINT8 (fun _ -> ())
 
 inline_for_extraction noextract
 val read____UINT8
@@ -684,7 +972,7 @@ val read____UINT8
 
 inline_for_extraction noextract
 val validate____UINT8BE
-  : validator parse____UINT8BE
+  : validator parse____UINT8BE (fun _ -> ())
 
 inline_for_extraction noextract
 val read____UINT8BE
@@ -692,15 +980,15 @@ val read____UINT8BE
 
 inline_for_extraction noextract
 val validate____UINT16BE
-  : validator parse____UINT16BE
+  : validator parse____UINT16BE (fun _ -> ())
 
 inline_for_extraction noextract
 val read____UINT16BE
-  : leaf_reader parse____UINT16BE
+  : leaf_reader parse____UINT16BE 
 
 inline_for_extraction noextract
 val validate____UINT32BE
-  : validator parse____UINT32BE
+  : validator parse____UINT32BE (fun _ -> ())
 
 inline_for_extraction noextract
 val read____UINT32BE
@@ -708,7 +996,7 @@ val read____UINT32BE
 
 inline_for_extraction noextract
 val validate____UINT64BE
-  : validator parse____UINT64BE
+  : validator parse____UINT64BE (fun _ -> ())
 
 inline_for_extraction noextract
 val read____UINT64BE
@@ -716,7 +1004,7 @@ val read____UINT64BE
 
 inline_for_extraction noextract
 val validate____UINT16
-  : validator parse____UINT16
+  : validator parse____UINT16 (fun _ -> ())
 
 inline_for_extraction noextract
 val read____UINT16
@@ -724,7 +1012,7 @@ val read____UINT16
 
 inline_for_extraction noextract
 val validate____UINT32
-  : validator parse____UINT32
+  : validator parse____UINT32 (fun _ -> ())
 
 inline_for_extraction noextract
 val read____UINT32
@@ -732,7 +1020,7 @@ val read____UINT32
 
 inline_for_extraction noextract
 val validate____UINT64
-  : validator parse____UINT64
+  : validator parse____UINT64 (fun _ -> ())
 
 inline_for_extraction noextract
 val read____UINT64
@@ -740,7 +1028,7 @@ val read____UINT64
 
 inline_for_extraction noextract
 val validate_unit
-  : validator parse_unit
+  : validator parse_unit (fun _ -> ())
 
 inline_for_extraction noextract
 val read_unit
@@ -748,7 +1036,7 @@ val read_unit
 
 inline_for_extraction noextract
 val validate_unit_refinement (f:unit -> bool) (cf:string)
-  : validator (parse_unit `parse_filter` f)
+  : validator (parse_unit `parse_filter` f) (fun _ -> ())
 
 inline_for_extraction noextract
 val validate_string
@@ -756,18 +1044,19 @@ val validate_string
        (#t: eqtype)
        (#[@@@erasable] p: parser k t)
        (#ha:_)
-       (v: validator_maybe_action p ha)
+       (v: validator_maybe_action p ha (fun _ -> ()))
        (r: leaf_reader p)
        (terminator: t)
-  : Tot (validate_with_action_t (parse_string p terminator) true_inv disjointness_trivial eloc_none ha false)
+  : Tot (validate_with_action_t (parse_string p terminator) true_inv disjointness_trivial eloc_none ha false (fun _ -> ()))
 
 inline_for_extraction noextract
 val validate_all_bytes
   : validate_with_action_t parse_all_bytes true_inv disjointness_trivial eloc_none false false // could be true
+    (fun _ -> ())
 
 inline_for_extraction noextract
 val validate_all_zeros
-  : validate_with_action_t parse_all_zeros true_inv disjointness_trivial eloc_none false false
+  : validate_with_action_t parse_all_zeros true_inv disjointness_trivial eloc_none false false (fun _ -> ())
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -923,7 +1212,9 @@ val probe_then_validate
       (#ptr_t:Type0)
       (typename:string)
       (fieldname:string)
-      (v:validate_with_action_t p inv disj l ha allow_reading)
+      (#ret:Type0)
+      (#f:t -> GTot ret)
+      (v:validate_with_action_t p inv disj l ha allow_reading f)
       (src:ptr_t)
       (as_u64: ptr_t -> PA.pure_external_action U64.t)
       (nullable:bool)

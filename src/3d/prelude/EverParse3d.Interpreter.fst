@@ -104,6 +104,17 @@ let itype_as_type (i:itype)
     | AllBytes -> P.all_bytes
     | AllZeros -> P.all_zeros
 
+
+[@@specialize]
+let itype_as_ret_t (i:itype)
+  : Type0
+  = unit
+
+[@@specialize]
+let itype_as_f (i:itype)
+  : itype_as_type i -> itype_as_ret_t i
+  = fun _ -> ()
+
 [@@specialize]
 let parser_kind_nz_of_itype (i:itype)
   : bool
@@ -189,6 +200,7 @@ let itype_as_validator (i:itype)
       A.eloc_none
       false
       (allow_reader_of_itype i)
+      (itype_as_f i)
   = match i with
     | UInt8 -> A.validate____UINT8
     | UInt16 -> A.validate____UINT16
@@ -303,14 +315,17 @@ type global_binding = {
   p_p : P.parser parser_kind p_t;
   //Whether the type can be read -- to avoid double fetches
   p_reader: option (leaf_reader p_p);
-  //Its validate-with-action denotationa
+  //Its validate-with-action denotation
+  ret_t : Type0;
+  f: p_t -> GTot ret_t;
   p_v : A.validate_with_action_t
           p_p
           (interp_inv inv)
           (interp_disj disj)
           (interp_loc loc)
           parser_has_action
-          (Some? p_reader);
+          (Some? p_reader)
+          f;
 }
 
 let projector_names : list string = [
@@ -324,6 +339,8 @@ let projector_names : list string = [
   `%Mkglobal_binding?.p_t;
   `%Mkglobal_binding?.p_p;
   `%Mkglobal_binding?.p_reader;
+  `%Mkglobal_binding?.ret_t;
+  `%Mkglobal_binding?.f;
   `%Mkglobal_binding?.p_v;
 ]
 
@@ -337,6 +354,8 @@ let loc_of_binding = Mkglobal_binding?.loc
 let type_of_binding = Mkglobal_binding?.p_t
 let parser_of_binding = Mkglobal_binding?.p_p
 let leaf_reader_of_binding = Mkglobal_binding?.p_reader
+let ret_t_of_binding = Mkglobal_binding?.ret_t
+let f_of_binding = Mkglobal_binding?.f
 let validator_of_binding = Mkglobal_binding?.p_v
 
 let has_reader (g:global_binding) = 
@@ -411,7 +430,8 @@ type dtyp
                 hr == has_reader x /\
                 inv == inv_of_binding x /\
                 disj == disj_of_bindng x /\
-                loc == loc_of_binding x) ->
+                loc == loc_of_binding x
+                ) ->
       dtyp #nz #wk pk ha hr inv disj loc
            
 [@@specialize]
@@ -448,6 +468,26 @@ let dtyp_as_parser #nz #wk (#pk:P.parser_kind nz wk) #ha #hr #i #disj #l
     | DT_App _ _ _ _ _ _ b _ ->
       parser_of_binding b
 
+let dtyp_as_ret_t #nz #wk (#pk:P.parser_kind nz wk) #ha #hr #i #disj #l
+                   (d:dtyp pk ha hr i disj l)
+  : Type0
+  = match d with
+    | DT_IType i -> 
+      itype_as_ret_t i
+
+    | DT_App _ _ _ _ _ _ b _ ->
+      ret_t_of_binding b
+
+let dtyp_as_f #nz #wk (#pk:P.parser_kind nz wk) #ha #hr #i #disj #l
+                   (d:dtyp pk ha hr i disj l)
+  : dtyp_as_type d -> GTot (dtyp_as_ret_t d)
+  = match d with
+    | DT_IType i -> 
+      itype_as_f i
+
+    | DT_App _ _ _ _ _ _ b _ ->
+      f_of_binding b
+
 [@@specialize]
 let dtyp_as_validator #nz #wk (#pk:P.parser_kind nz wk)
                       (#ha #hr:_)
@@ -460,7 +500,7 @@ let dtyp_as_validator #nz #wk (#pk:P.parser_kind nz wk)
         (interp_inv i)
         (interp_disj disj)
         (interp_loc l)
-        ha hr
+        ha hr (dtyp_as_f d)
   = match d 
     returns 
       A.validate_with_action_t #nz #wk #pk #(dtyp_as_type d)
@@ -468,7 +508,7 @@ let dtyp_as_validator #nz #wk (#pk:P.parser_kind nz wk)
             (interp_inv i)
             (interp_disj disj)
             (interp_loc l)
-            ha hr 
+            ha hr (dtyp_as_f d)
     with
     | DT_IType i -> 
       itype_as_validator i
@@ -847,17 +887,20 @@ type typ
     loc_index ->
     bool ->
     bool ->
+    // A new index for validator's return type 
+    // We need this as ret_t should never be a dependent type (we cannot interpret it with as_ret_t)
+    ret_t:Type0 ->
     Type =
   | T_false:
       fieldname:string ->      
-      typ P.impos_kind inv_none disj_none loc_none false true
+      typ P.impos_kind inv_none disj_none loc_none false true unit
 
   | T_denoted :
       fieldname:string ->       
       #nz:_ -> #wk:_ -> #pk:P.parser_kind nz wk ->
       #ha:_ -> #has_reader:_ -> #i:_ -> #disj:_ -> #l:_ ->
       td:dtyp pk ha has_reader i disj l ->
-      typ pk i disj l ha has_reader
+      typ pk i disj l ha has_reader (dtyp_as_ret_t td)
 
   | T_pair:
       first_fieldname:string ->
@@ -865,16 +908,40 @@ type typ
       #i1:_ -> #d1:_ -> #l1:_ -> #ha1:_ -> #b1:_ ->
       #nz2:_ -> #wk2:_ -> #pk2:P.parser_kind nz2 wk2 ->
       #i2:_ -> #d2:_ -> #l2:_ -> #ha2:_ -> #b2:_ ->
+      #ret_t1:Type0 ->
+      #ret_t2:Type0 ->
       k1_const: bool ->
-      t1:typ pk1 i1 d1 l1 ha1 b1 ->
+      t1:typ pk1 i1 d1 l1 ha1 b1 ret_t1 ->
       k2_const: bool ->
-      t2:typ pk2 i2 d2 l2 ha2 b2 ->
+      t2:typ pk2 i2 d2 l2 ha2 b2 ret_t2 ->
       typ (P.and_then_kind pk1 pk2) 
           (join_inv i1 i2)
           (join_disj d1 d2)
           (join_loc l1 l2)
           (ha1 || ha2)
          false
+         ret_t2
+
+  | T_dep_pair_gen:
+      first_fieldname:string ->       
+      #nz1:_ -> #pk1:P.parser_kind nz1 P.WeakKindStrongPrefix ->
+      #i1:_ -> #d1:_ -> #l1:_ -> #ha1:_ ->
+      #nz2:_ -> #wk2:_ -> #pk2:P.parser_kind nz2 wk2 ->
+      #i2:_ -> #d2:_ -> #l2:_ -> #ha2:_ -> #b2:bool ->
+      #ret_t:Type0 ->
+      //the first component is a pre-denoted type *without* a reader (but can return)
+      t1:dtyp pk1 ha1 false i1 d1 l1 ->
+      //the second component is a function from denotations of t1
+      //that's why it's a small type, so that we can speak about its
+      //denotation here
+      t2:(dtyp_as_ret_t t1 -> typ pk2 i2 d2 l2 ha2 b2 ret_t) ->
+      typ (P.and_then_kind pk1 pk2)
+          (join_inv i1 i2)
+          (join_disj d1 d2)
+          (join_loc l1 l2)
+          (ha1 || ha2)
+          false
+          ret_t
 
   | T_dep_pair:
       first_fieldname:string ->       
@@ -882,18 +949,20 @@ type typ
       #i1:_ -> #d1:_ -> #l1:_ -> #ha1:_ ->
       #nz2:_ -> #wk2:_ -> #pk2:P.parser_kind nz2 wk2 ->
       #i2:_ -> #d2:_ -> #l2:_ -> #ha2:_ -> #b2:bool ->
+      #ret_t:Type0 ->
       //the first component is a pre-denoted type with a reader
-      t1:dtyp pk1 ha1 true i1 d1 l1 ->
+      t1:dtyp pk1 ha1 true i1 d1 l1 { dtyp_as_ret_t t1 == unit /\ dtyp_as_f t1 == fun _ -> () } ->
       //the second component is a function from denotations of t1
       //that's why it's a small type, so that we can speak about its
       //denotation here
-      t2:(dtyp_as_type t1 -> typ pk2 i2 d2 l2 ha2 b2) ->
+      t2:(dtyp_as_type t1 -> typ pk2 i2 d2 l2 ha2 b2 ret_t) ->
       typ (P.and_then_kind pk1 pk2)
           (join_inv i1 i2)
           (join_disj d1 d2)
           (join_loc l1 l2)
           (ha1 || ha2)
           false
+          ret_t
 
   | T_refine:
       fieldname:string ->       
@@ -905,7 +974,7 @@ type typ
       //but notice that its codomain is bool, rather than expr
       //That's to ensure that the refinement is already well-typed
       refinement:(dtyp_as_type base -> bool) ->
-      typ (P.filter_kind pk1) i1 d1 l1 ha1 false
+      typ (P.filter_kind pk1) i1 d1 l1 ha1 false unit
 
   | T_refine_with_action:
       fieldname:string ->       
@@ -921,6 +990,7 @@ type typ
           (join_loc l1 l2)
           true
           false
+          unit
 
   | T_dep_pair_with_refinement:
       //This construct serves two purposes
@@ -933,17 +1003,19 @@ type typ
       #i1:_ -> #d1:_ -> #l1:_ -> #ha1:_ ->
       #nz2:_ -> #wk2:_ -> #pk2:P.parser_kind nz2 wk2 ->
       #i2:_ -> #d2:_ -> #l2:_ -> #b2:_ -> #ha2:_ ->
+      #ret_t:Type0 ->
       //the first component is a pre-denoted type with a reader
-      base:dtyp pk1 ha1 true i1 d1 l1 ->
+      base:dtyp pk1 ha1 true i1 d1 l1 {dtyp_as_ret_t base == unit /\ dtyp_as_f base == fun _ -> ()} ->
       //the second component is a function from denotations of base
       refinement:(dtyp_as_type base -> bool) ->
-      k:(x:dtyp_as_type base { refinement x } -> typ pk2 i2 d2 l2 ha2 b2) ->
+      k:(x:dtyp_as_type base { refinement x } -> typ pk2 i2 d2 l2 ha2 b2 ret_t) ->
       typ (P.and_then_kind (P.filter_kind pk1) pk2)
           (join_inv i1 i2)
           (join_disj d1 d2)
           (join_loc l1 l2)
           (ha1 || ha2)
           false
+          ret_t
 
   | T_dep_pair_with_action:
       fieldname:string ->       
@@ -952,8 +1024,10 @@ type typ
       #nz2:_ -> #wk2:_ -> #pk2:P.parser_kind nz2 wk2 ->
       #i2:_ -> #d2:_ -> #l2:_ -> #b2:_ -> #ha2:_ ->
       #i3:_ -> #d3:_ -> #l3:_ -> #b3:_ -> #rt3:_ ->
-      base:dtyp pk1 ha1 true i1 d1 l1 ->
-      k:(x:dtyp_as_type base -> typ pk2 i2 d2 l2 ha2 b2) ->
+      #ret_t:Type0 ->
+      //the first component is a pre-denoted type with a reader
+      base:dtyp pk1 ha1 true i1 d1 l1 {dtyp_as_ret_t base == unit /\ dtyp_as_f base == fun _ -> ()} ->
+      k:(x:dtyp_as_type base -> typ pk2 i2 d2 l2 ha2 b2 ret_t) ->
       act:(dtyp_as_type base -> action i3 d3 l3 b3 rt3 bool) ->
       typ (P.and_then_kind pk1 pk2)
           (join_inv i1 (join_inv i3 i2))
@@ -961,6 +1035,7 @@ type typ
           (join_loc l1 (join_loc l3 l2))
           true
           false
+          ret_t
 
   | T_dep_pair_with_refinement_and_action:
       //This construct serves two purposes
@@ -974,11 +1049,12 @@ type typ
       #nz2:_ -> #wk2:_ -> #pk2:P.parser_kind nz2 wk2 ->
       #i2:_ -> #d2:_ -> #l2:_ -> #b2:_ -> #ha2:_ ->
       #i3:_ -> #d3:_ -> #l3:_ -> #b3:_ -> #rt3:_ -> 
+      #ret_t:Type0 ->
       //the first component is a pre-denoted type with a reader
-      base:dtyp pk1 ha1 true i1 d1 l1 ->
+      base:dtyp pk1 ha1 true i1 d1 l1 {dtyp_as_ret_t base == unit /\ dtyp_as_f base == fun _ -> ()} ->
       //the second component is a function from denotations of base
       refinement:(dtyp_as_type base -> bool) ->
-      k:(x:dtyp_as_type base { refinement x } -> typ pk2 i2 d2 l2 ha2 b2) ->
+      k:(x:dtyp_as_type base { refinement x } -> typ pk2 i2 d2 l2 ha2 b2 ret_t) ->
       act:(dtyp_as_type base -> action i3 d3 l3 b3 rt3 bool) ->
       typ (P.and_then_kind (P.filter_kind pk1) pk2)
           (join_inv i1 (join_inv i3 i2))
@@ -986,6 +1062,7 @@ type typ
           (join_loc l1 (join_loc l3 l2))
           true
           false
+          ret_t
 
   | T_if_else:
       #nz1:_ -> #wk1:_ -> #pk1:P.parser_kind nz1 wk1 ->
@@ -993,14 +1070,16 @@ type typ
       #nz2:_ -> #wk2:_ -> #pk2:P.parser_kind nz2 wk2 ->      
       #l2:_ -> #i2:_ -> #d2:_ -> #b2:_ -> #ha2:_ ->
       b:bool -> //A bool, rather than an expression
-      t1:(squash b -> typ pk1 i1 d1 l1 ha1 b1) ->
-      t2:(squash (not b) -> typ pk2 i2 d2 l2 ha2 b2) ->
+      #ret_t:Type0 ->
+      t1:(squash b -> typ pk1 i1 d1 l1 ha1 b1 ret_t) ->
+      t2:(squash (not b) -> typ pk2 i2 d2 l2 ha2 b2 ret_t) ->
       typ (P.glb pk1 pk2)
           (join_inv i1 i2)
           (join_disj d1 d2)
           (join_loc l1 l2)
           (ha1 || ha2)
           false
+          ret_t
 
   | T_cases:
       #nz1:_ -> #wk1:_ -> #pk1:P.parser_kind nz1 wk1 ->
@@ -1008,72 +1087,82 @@ type typ
       #nz2:_ -> #wk2:_ -> #pk2:P.parser_kind nz2 wk2 ->      
       #l2:_ -> #i2:_ -> #d2:_ -> #b2:_ -> #ha2:_ ->
       b:bool -> //A bool, rather than an expression
-      t1:typ pk1 i1 d1 l1 ha1 b1 ->
-      t2:typ pk2 i2 d2 l2 ha2 b2 ->
+      #ret_t:Type0 ->
+      t1:typ pk1 i1 d1 l1 ha1 b1 ret_t ->
+      t2:typ pk2 i2 d2 l2 ha2 b2 ret_t ->
       typ (P.glb pk1 pk2)
           (join_inv i1 i2)
           (join_disj d1 d2)
           (join_loc l1 l2)
           (ha1 || ha2)
           false
+          ret_t
 
   | T_with_action:
       fieldname:string ->       
       #nz:_ -> #wk:_ -> #pk:P.parser_kind nz wk ->
       #l1:_ -> #i1:_ -> #d1:_ -> #b1:_ -> #ha1:_ ->
       #l2:_ -> #i2:_ -> #d2:_ -> #b2:_ -> #rt2:_ ->
-      base:typ pk i1 d1 l1 ha1 b1 ->
+      #ret_t:Type0 ->
+      base:typ pk i1 d1 l1 ha1 b1 ret_t ->
       act:action i2 d2 l2 b2 rt2 bool ->
-      typ pk (join_inv i1 i2) (join_disj d1 d2) (join_loc l1 l2) true false
+      typ pk (join_inv i1 i2) (join_disj d1 d2) (join_loc l1 l2) true false ret_t
 
   | T_with_dep_action:
       fieldname:string ->       
       #nz1:_ -> #pk1:P.parser_kind nz1 P.WeakKindStrongPrefix ->
       #i1:_ -> #d1: _ -> #l1:_ -> #ha1:_ ->
       #i2:_ -> #d2:_ -> #l2:_ -> #b2:_ -> #rt2:_ ->
+      #ret_t:Type0 ->
       head:dtyp pk1 ha1 true i1 d1 l1 ->
       act:(typename:string -> dtyp_as_type head -> action i2 d2 l2 b2 rt2 bool) ->
-      typ pk1 (join_inv i1 i2) (join_disj d1 d2) (join_loc l1 l2) true false
+      typ pk1 (join_inv i1 i2) (join_disj d1 d2) (join_loc l1 l2) true false ret_t
 
   | T_drop:
       #nz:_ -> #wk:_ -> #pk:P.parser_kind nz wk ->
       #l:_ -> #i:_ -> #d:_ -> #b:_ -> #ha:_ ->
-      t:typ pk i d l ha b ->
-      typ pk i d l ha false
+      #ret_t:Type0 ->
+      t:typ pk i d l ha b ret_t ->
+      typ pk i d l ha false ret_t
 
   | T_with_comment:
       fieldname:string ->       
       #nz:_ -> #wk:_ -> #pk:P.parser_kind nz wk ->
       #l:_ -> #i:_ -> #d:_ -> #b:_ -> #ha:_ ->
-      t:typ pk i d l ha b ->
+      #ret_t:Type0 ->
+      t:typ pk i d l ha b ret_t ->
       c:comments ->
-      typ pk i d l ha b
+      typ pk i d l ha b ret_t
 
   | T_nlist:
       fieldname:string ->       
       #wk:_ -> #pk:P.parser_kind true wk ->
       #i:_ -> #l:_ -> #d:_ -> #b:_ -> #ha:_ ->
+      #ret_t:Type0 ->
       n:U32.t ->
       n_is_constant:option nat { P.memoizes_n_as_const n_is_constant n } ->
       payload_is_constant_size:bool ->
-      t:typ pk i d l ha b ->
-      typ (P.kind_nlist pk n_is_constant) i d l ha false
+      t:typ pk i d l ha b ret_t ->
+      typ (P.kind_nlist pk n_is_constant) i d l ha false unit // nlist validator does not return (would incur heap-allocation)
+
 
   | T_at_most:
       fieldname:string ->       
       #nz:_ -> #wk:_ -> #pk:P.parser_kind nz wk ->
       #i:_ -> #d:_ -> #l:_ -> #b:_ -> #ha:_ ->
+      #ret_t:Type0 ->
       n:U32.t ->
-      t:typ pk i d l ha b ->
-      typ P.kind_t_at_most i d l ha false
+      t:typ pk i d l ha b ret_t ->
+      typ P.kind_t_at_most i d l ha false unit
 
   | T_exact:
       fieldname:string ->       
       #nz:_ -> #wk:_ -> #pk:P.parser_kind nz wk ->
       #i:_ -> #d:_ -> #l:_ -> #b:_ -> #ha:_ ->
+      #ret_t:Type0 ->
       n:U32.t ->
-      t:typ pk i d l ha b ->
-      typ P.kind_t_exact i d l ha false
+      t:typ pk i d l ha b ret_t ->
+      typ P.kind_t_exact i d l ha false unit
 
   | T_string:
       fieldname:string ->       
@@ -1081,7 +1170,13 @@ type typ
       #ha:_ ->
       element_type:dtyp pk1 ha true inv_none disj_none loc_none ->
       terminator:dtyp_as_type element_type ->
-      typ P.parse_string_kind inv_none disj_none loc_none ha false
+      typ P.parse_string_kind inv_none disj_none loc_none ha false unit
+
+  | T_Return:
+      #ret_t:Type0 ->
+      x: ret_t ->
+      typ P.ret_kind inv_none disj_none loc_none false true ret_t
+      
 
 [@@specialize]
 inline_for_extraction
@@ -1112,6 +1207,7 @@ let t_probe_then_validate
        (join_loc l (NonTrivial (A.copy_buffer_loc dest)))
        true
        false
+       (itype_as_ret_t pointer_size)
  = T_with_dep_action fieldname
      (DT_IType pointer_size)
      (fun typename src ->
@@ -1138,6 +1234,7 @@ let t_probe_then_validate_alt
        (join_loc l (NonTrivial (A.copy_buffer_loc dest)))
        true
        false
+       (itype_as_ret_t pointer_size)
  = T_with_dep_action fieldname
      (DT_IType pointer_size)
      (fun typename src ->
@@ -1147,7 +1244,8 @@ let t_probe_then_validate_alt
 let rec as_type
           #nz #wk (#pk:P.parser_kind nz wk)
           #l #i #d #ha #b
-          (t:typ pk l i d ha b)
+          (#ret_t:Type0)
+          (t:typ pk l i d ha b ret_t)
   : Tot Type0
     (decreases t)
   = match t with
@@ -1158,6 +1256,11 @@ let rec as_type
 
     | T_pair _ _ t1 _ t2 ->
       as_type t1 & as_type t2
+
+    | T_dep_pair_gen _ i t ->
+      let f = dtyp_as_f i in
+      x:dtyp_as_type i & as_type (t (f x))
+      // x:dtyp_as_ret_t i & as_type (t x)
 
     | T_dep_pair _ i t
     | T_dep_pair_with_action _ i t _ ->
@@ -1202,12 +1305,16 @@ let rec as_type
     | T_string _ elt_t terminator ->
       P.cstring (dtyp_as_type elt_t) terminator
 
+    | T_Return x ->
+      unit
+
 
 (* Parser denotation of `typ` *)
 let rec as_parser
           #nz #wk (#pk:P.parser_kind nz wk)
           #l #i #d #ha #b
-          (t:typ pk l i d ha b)
+          (#ret_t:Type0)
+          (t:typ pk l i d ha b ret_t)
   : Tot (P.parser pk (as_type t))
         (decreases t)
   = match t returns Tot (P.parser pk (as_type t)) with
@@ -1223,6 +1330,12 @@ let rec as_parser
       let p1 = as_parser t1 in
       let p2 = as_parser t2 in
       P.parse_pair p1 p2
+
+    | T_dep_pair_gen _ i t ->
+      let pi = dtyp_as_parser i in
+      let f = dtyp_as_f i in
+      assume False;
+      P.parse_dep_pair pi (fun (x:dtyp_as_type i) -> as_parser (t (f x)))
 
     | T_dep_pair _ i t
     | T_dep_pair_with_action _ i t _ ->
@@ -1291,12 +1404,16 @@ let rec as_parser
     | T_string _ elt_t terminator ->
       P.parse_string (dtyp_as_parser elt_t) terminator
 
+    | T_Return x ->
+      P.parse_ret ()
+
 [@@specialize]
 let rec as_reader #nz (#pk:P.parser_kind nz P.WeakKindStrongPrefix) #ha
                   (#[@@@erasable] inv:inv_index)
                   (#[@@@erasable] d:disj_index)
                   (#[@@@erasable] loc:loc_index)
-                  (t:typ pk inv d loc ha true)
+                  (#ret_t:Type0)
+                  (t:typ pk inv d loc ha true ret_t)
   : leaf_reader (as_parser t)
   = match t with
     | T_denoted _n dt ->
@@ -1317,7 +1434,123 @@ let rec as_reader #nz (#pk:P.parser_kind nz P.WeakKindStrongPrefix) #ha
      related by construction to the parser
      and type denotations
 *)
-#push-options "--split_queries no --z3rlimit_factor 4 --z3cliopt 'smt.qi.eager_threshold=100'"
+
+(* Additional denotation for validator returns *)
+// let rec as_ret_t
+//           #nz #wk (#pk:P.parser_kind nz wk)
+//           #l #i #d #ha #b
+//           (t:typ pk l i d ha b)
+//   : Tot Type0
+//         (decreases t)
+//   = match t with
+//     | T_false _ -> 
+//       False
+//
+//     | T_denoted _ d -> 
+//       dtyp_as_ret_t d
+//
+//     | T_pair _ _ t1 _ t2 ->
+//       as_ret_t t2 //nondep pair drops the first return value
+//
+//       // TODO: add cases for generalized dependent pairs
+//     | T_dep_pair _ i t
+//     | T_dep_pair_with_action _ i t _ ->
+//
+//       // x:dtyp_as_type i & as_ret_t (t x)
+//
+//     | T_refine _ base refinement
+//     | T_refine_with_action _ base refinement _ -> 
+//       unit
+//
+//     | T_dep_pair_with_refinement _ base refinement t 
+//     | T_dep_pair_with_refinement_and_action _ base refinement t _ ->
+//       x:P.refine (dtyp_as_type base) refinement & as_ret_t (t x)
+//
+//     | T_if_else b t0 t1 ->
+//       P.t_ite b (fun _ -> as_ret_t (t0()))
+//                       (fun _ -> as_ret_t (t1()))
+//
+//     | T_cases b t0 t1 ->
+//       P.t_ite b (fun _ -> as_ret_t t0) (fun _ -> as_ret_t t1)
+//
+//     | T_drop t
+//     | T_with_action _ t _
+//     | T_with_comment _ t _ ->
+//       as_ret_t t
+//
+//     | T_with_dep_action _ i _ ->
+//       dtyp_as_ret_t i
+//
+//     | T_nlist _ _ _ _ _
+//     | T_at_most _ _ _
+//     | T_exact _ _ _
+//     | T_string _ _ _ ->
+//       unit
+
+
+let rec as_f
+          #nz #wk (#pk:P.parser_kind nz wk)
+          #l #i #d #ha #b #ret_t
+          (t:typ pk l i d ha b ret_t)
+  : Tot (as_type t -> GTot ret_t)
+        (decreases t)
+  = match t returns (as_type t -> GTot ret_t) with
+    | T_false _ -> 
+      fun (x:False) -> ()
+    
+    | T_denoted _f d -> 
+      // assert_norm (dtyp_as_type d == as_type (T_denoted _f d));
+      // assert_norm (dtyp_as_ret_t d == as_ret_t (T_denoted _f d));
+      dtyp_as_f d
+
+    | T_pair _f k1 t1 k2 t2 ->
+      assert_norm (as_type (T_pair _f k1 t1 k2 t2) == as_type t1 & as_type t2);
+      // assert_norm (as_ret_t (T_pair _f k1 t1 k2 t2) == as_ret_t t2);
+      fun (_, x2) -> coerce_eq () ((as_f t2) x2) //nondep pair drops the first return value
+
+      // TODO: add cases for generalized combinators
+    | T_dep_pair _ t0 t1
+    | T_dep_pair_with_action _ t0 t1 _ ->
+      fun (| x0, x1 |) ->
+        as_f (t1 x0) x1
+
+    | T_refine _ base refinement
+    | T_refine_with_action _ base refinement _ -> 
+      fun _ -> ()
+
+    | T_dep_pair_with_refinement _ base refinement t 
+    | T_dep_pair_with_refinement_and_action _ base refinement t _ ->
+      fun (| x0, x1 |) -> 
+        as_f (t x0) x1
+      // let x = P.refine (dtyp_as_type base) refinement in
+      // as_f (t x)
+
+    | T_if_else b t0 t1 ->
+      (fun (x: as_type t) -> 
+        if b then as_f (t0()) x
+        else as_f (t1()) x)
+
+    | T_cases b t0 t1 ->
+      (fun (x: as_type t) -> 
+        if b then as_f t0 x
+        else as_f t1 x)
+
+    | T_drop t
+    | T_with_action _ t _
+    | T_with_comment _ t _ ->
+      as_f t
+
+    | T_with_dep_action _ i _ ->
+      dtyp_as_f i
+
+    | T_nlist _ _ _ _ _
+    | T_at_most _ _ _
+    | T_exact _ _ _
+    | T_string _ _ _ ->
+      fun _ -> ()
+      
+
+#push-options "--split_queries no --z3rlimit_factor 4 --z3cliopt 'smt.qi.eager_threshold=10'"
 #restart-solver
 let rec as_validator
           (typename:string)
@@ -1332,7 +1565,8 @@ let rec as_validator
             (interp_inv inv)
             (interp_disj disj)
             (interp_loc loc)
-            ha b)
+            ha b
+            )
         (decreases t)
   = A.index_equations();
     match t
