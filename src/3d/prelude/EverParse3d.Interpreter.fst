@@ -111,11 +111,6 @@ let itype_as_ret_t (i:itype)
   = unit
 
 [@@specialize]
-let itype_as_f (i:itype)
-  : itype_as_type i -> itype_as_ret_t i
-  = fun _ -> ()
-
-[@@specialize]
 let parser_kind_nz_of_itype (i:itype)
   : bool
   = match i with
@@ -200,7 +195,7 @@ let itype_as_validator (i:itype)
       A.eloc_none
       false
       (allow_reader_of_itype i)
-      (itype_as_f i)
+      (itype_as_ret_t i)
   = match i with
     | UInt8 -> A.validate____UINT8
     | UInt16 -> A.validate____UINT16
@@ -317,7 +312,6 @@ type global_binding = {
   p_reader: option (leaf_reader p_p);
   //Its validate-with-action denotation
   ret_t : Type0;
-  f: p_t -> GTot ret_t;
   p_v : A.validate_with_action_t
           p_p
           (interp_inv inv)
@@ -325,7 +319,7 @@ type global_binding = {
           (interp_loc loc)
           parser_has_action
           (Some? p_reader)
-          f;
+          ret_t;
 }
 
 let projector_names : list string = [
@@ -340,7 +334,6 @@ let projector_names : list string = [
   `%Mkglobal_binding?.p_p;
   `%Mkglobal_binding?.p_reader;
   `%Mkglobal_binding?.ret_t;
-  `%Mkglobal_binding?.f;
   `%Mkglobal_binding?.p_v;
 ]
 
@@ -355,7 +348,6 @@ let type_of_binding = Mkglobal_binding?.p_t
 let parser_of_binding = Mkglobal_binding?.p_p
 let leaf_reader_of_binding = Mkglobal_binding?.p_reader
 let ret_t_of_binding = Mkglobal_binding?.ret_t
-let f_of_binding = Mkglobal_binding?.f
 let validator_of_binding = Mkglobal_binding?.p_v
 
 let has_reader (g:global_binding) = 
@@ -478,16 +470,6 @@ let dtyp_as_ret_t #nz #wk (#pk:P.parser_kind nz wk) #ha #hr #i #disj #l
     | DT_App _ _ _ _ _ _ b _ ->
       ret_t_of_binding b
 
-let dtyp_as_f #nz #wk (#pk:P.parser_kind nz wk) #ha #hr #i #disj #l
-                   (d:dtyp pk ha hr i disj l)
-  : dtyp_as_type d -> GTot (dtyp_as_ret_t d)
-  = match d with
-    | DT_IType i -> 
-      itype_as_f i
-
-    | DT_App _ _ _ _ _ _ b _ ->
-      f_of_binding b
-
 [@@specialize]
 let dtyp_as_validator #nz #wk (#pk:P.parser_kind nz wk)
                       (#ha #hr:_)
@@ -500,7 +482,7 @@ let dtyp_as_validator #nz #wk (#pk:P.parser_kind nz wk)
         (interp_inv i)
         (interp_disj disj)
         (interp_loc l)
-        ha hr (dtyp_as_f d)
+        ha hr (dtyp_as_ret_t d)
   = match d 
     returns 
       A.validate_with_action_t #nz #wk #pk #(dtyp_as_type d)
@@ -508,7 +490,7 @@ let dtyp_as_validator #nz #wk (#pk:P.parser_kind nz wk)
             (interp_inv i)
             (interp_disj disj)
             (interp_loc l)
-            ha hr (dtyp_as_f d)
+            ha hr (dtyp_as_ret_t d)
     with
     | DT_IType i -> 
       itype_as_validator i
@@ -951,7 +933,7 @@ type typ
       #i2:_ -> #d2:_ -> #l2:_ -> #ha2:_ -> #b2:bool ->
       #ret_t:Type0 ->
       //the first component is a pre-denoted type with a reader
-      t1:dtyp pk1 ha1 true i1 d1 l1 { dtyp_as_ret_t t1 == unit /\ dtyp_as_f t1 == fun _ -> () } ->
+      t1:dtyp pk1 ha1 true i1 d1 l1 { dtyp_as_ret_t t1 == unit } ->
       //the second component is a function from denotations of t1
       //that's why it's a small type, so that we can speak about its
       //denotation here
@@ -1005,7 +987,7 @@ type typ
       #i2:_ -> #d2:_ -> #l2:_ -> #b2:_ -> #ha2:_ ->
       #ret_t:Type0 ->
       //the first component is a pre-denoted type with a reader
-      base:dtyp pk1 ha1 true i1 d1 l1 {dtyp_as_ret_t base == unit /\ dtyp_as_f base == fun _ -> ()} ->
+      base:dtyp pk1 ha1 true i1 d1 l1 { dtyp_as_ret_t base == unit } ->
       //the second component is a function from denotations of base
       refinement:(dtyp_as_type base -> bool) ->
       k:(x:dtyp_as_type base { refinement x } -> typ pk2 i2 d2 l2 ha2 b2 ret_t) ->
@@ -1026,7 +1008,7 @@ type typ
       #i3:_ -> #d3:_ -> #l3:_ -> #b3:_ -> #rt3:_ ->
       #ret_t:Type0 ->
       //the first component is a pre-denoted type with a reader
-      base:dtyp pk1 ha1 true i1 d1 l1 {dtyp_as_ret_t base == unit /\ dtyp_as_f base == fun _ -> ()} ->
+      base:dtyp pk1 ha1 true i1 d1 l1 { dtyp_as_ret_t base == unit } ->
       k:(x:dtyp_as_type base -> typ pk2 i2 d2 l2 ha2 b2 ret_t) ->
       act:(dtyp_as_type base -> action i3 d3 l3 b3 rt3 bool) ->
       typ (P.and_then_kind pk1 pk2)
@@ -1051,7 +1033,7 @@ type typ
       #i3:_ -> #d3:_ -> #l3:_ -> #b3:_ -> #rt3:_ -> 
       #ret_t:Type0 ->
       //the first component is a pre-denoted type with a reader
-      base:dtyp pk1 ha1 true i1 d1 l1 {dtyp_as_ret_t base == unit /\ dtyp_as_f base == fun _ -> ()} ->
+      base:dtyp pk1 ha1 true i1 d1 l1 { dtyp_as_ret_t base == unit } ->
       //the second component is a function from denotations of base
       refinement:(dtyp_as_type base -> bool) ->
       k:(x:dtyp_as_type base { refinement x } -> typ pk2 i2 d2 l2 ha2 b2 ret_t) ->
@@ -1258,7 +1240,7 @@ let rec as_type
       as_type t1 & as_type t2
 
     | T_dep_pair_gen _ i t ->
-      let f = dtyp_as_f i in
+      let f = A.validate_with_action_f (dtyp_as_validator i) in
       x:dtyp_as_type i & as_type (t (f x))
       // x:dtyp_as_ret_t i & as_type (t x)
 
@@ -1331,10 +1313,10 @@ let rec as_parser
       let p2 = as_parser t2 in
       P.parse_pair p1 p2
 
-    | T_dep_pair_gen _ i t ->
+    | T_dep_pair_gen _fn i t ->
       let pi = dtyp_as_parser i in
-      let f = dtyp_as_f i in
-      assume False;
+      let f = A.validate_with_action_f (dtyp_as_validator i) in
+      assert_norm (as_type (T_dep_pair_gen _fn i t) == x:dtyp_as_type i & as_type (t (f x)));
       P.parse_dep_pair pi (fun (x:dtyp_as_type i) -> as_parser (t (f x)))
 
     | T_dep_pair _ i t
@@ -1428,6 +1410,8 @@ let rec as_reader #nz (#pk:P.parser_kind nz P.WeakKindStrongPrefix) #ha
       assert_norm (as_type (T_false _n) == False);
       assert_norm (as_parser (T_false _n) == P.parse_impos());
       (| (), A.read_impos |)
+    | T_Return _ ->
+      (| (), A.read_unit |)
 
 (* The main result:
    A validator denotation of `typ`
@@ -1488,67 +1472,67 @@ let rec as_reader #nz (#pk:P.parser_kind nz P.WeakKindStrongPrefix) #ha
 //       unit
 
 
-let rec as_f
-          #nz #wk (#pk:P.parser_kind nz wk)
-          #l #i #d #ha #b #ret_t
-          (t:typ pk l i d ha b ret_t)
-  : Tot (as_type t -> GTot ret_t)
-        (decreases t)
-  = match t returns (as_type t -> GTot ret_t) with
-    | T_false _ -> 
-      fun (x:False) -> ()
-    
-    | T_denoted _f d -> 
-      // assert_norm (dtyp_as_type d == as_type (T_denoted _f d));
-      // assert_norm (dtyp_as_ret_t d == as_ret_t (T_denoted _f d));
-      dtyp_as_f d
-
-    | T_pair _f k1 t1 k2 t2 ->
-      assert_norm (as_type (T_pair _f k1 t1 k2 t2) == as_type t1 & as_type t2);
-      // assert_norm (as_ret_t (T_pair _f k1 t1 k2 t2) == as_ret_t t2);
-      fun (_, x2) -> coerce_eq () ((as_f t2) x2) //nondep pair drops the first return value
-
-      // TODO: add cases for generalized combinators
-    | T_dep_pair _ t0 t1
-    | T_dep_pair_with_action _ t0 t1 _ ->
-      fun (| x0, x1 |) ->
-        as_f (t1 x0) x1
-
-    | T_refine _ base refinement
-    | T_refine_with_action _ base refinement _ -> 
-      fun _ -> ()
-
-    | T_dep_pair_with_refinement _ base refinement t 
-    | T_dep_pair_with_refinement_and_action _ base refinement t _ ->
-      fun (| x0, x1 |) -> 
-        as_f (t x0) x1
-      // let x = P.refine (dtyp_as_type base) refinement in
-      // as_f (t x)
-
-    | T_if_else b t0 t1 ->
-      (fun (x: as_type t) -> 
-        if b then as_f (t0()) x
-        else as_f (t1()) x)
-
-    | T_cases b t0 t1 ->
-      (fun (x: as_type t) -> 
-        if b then as_f t0 x
-        else as_f t1 x)
-
-    | T_drop t
-    | T_with_action _ t _
-    | T_with_comment _ t _ ->
-      as_f t
-
-    | T_with_dep_action _ i _ ->
-      dtyp_as_f i
-
-    | T_nlist _ _ _ _ _
-    | T_at_most _ _ _
-    | T_exact _ _ _
-    | T_string _ _ _ ->
-      fun _ -> ()
-      
+// let rec as_f
+//           #nz #wk (#pk:P.parser_kind nz wk)
+//           #l #i #d #ha #b #ret_t
+//           (t:typ pk l i d ha b ret_t)
+//   : Tot (as_type t -> GTot ret_t)
+//         (decreases t)
+//   = match t returns (as_type t -> GTot ret_t) with
+//     | T_false _ -> 
+//       fun (x:False) -> ()
+//
+//     | T_denoted _f d -> 
+//       // assert_norm (dtyp_as_type d == as_type (T_denoted _f d));
+//       // assert_norm (dtyp_as_ret_t d == as_ret_t (T_denoted _f d));
+//       dtyp_as_f d
+//
+//     | T_pair _f k1 t1 k2 t2 ->
+//       assert_norm (as_type (T_pair _f k1 t1 k2 t2) == as_type t1 & as_type t2);
+//       // assert_norm (as_ret_t (T_pair _f k1 t1 k2 t2) == as_ret_t t2);
+//       fun (_, x2) -> coerce_eq () ((as_f t2) x2) //nondep pair drops the first return value
+//
+//       // TODO: add cases for generalized combinators
+//     | T_dep_pair _ t0 t1
+//     | T_dep_pair_with_action _ t0 t1 _ ->
+//       fun (| x0, x1 |) ->
+//         as_f (t1 x0) x1
+//
+//     | T_refine _ base refinement
+//     | T_refine_with_action _ base refinement _ -> 
+//       fun _ -> ()
+//
+//     | T_dep_pair_with_refinement _ base refinement t 
+//     | T_dep_pair_with_refinement_and_action _ base refinement t _ ->
+//       fun (| x0, x1 |) -> 
+//         as_f (t x0) x1
+//       // let x = P.refine (dtyp_as_type base) refinement in
+//       // as_f (t x)
+//
+//     | T_if_else b t0 t1 ->
+//       (fun (x: as_type t) -> 
+//         if b then as_f (t0()) x
+//         else as_f (t1()) x)
+//
+//     | T_cases b t0 t1 ->
+//       (fun (x: as_type t) -> 
+//         if b then as_f t0 x
+//         else as_f t1 x)
+//
+//     | T_drop t
+//     | T_with_action _ t _
+//     | T_with_comment _ t _ ->
+//       as_f t
+//
+//     | T_with_dep_action _ i _ ->
+//       dtyp_as_f i
+//
+//     | T_nlist _ _ _ _ _
+//     | T_at_most _ _ _
+//     | T_exact _ _ _
+//     | T_string _ _ _ ->
+//       fun _ -> ()
+//
 
 #push-options "--split_queries no --z3rlimit_factor 4 --z3cliopt 'smt.qi.eager_threshold=10'"
 #restart-solver
@@ -1558,14 +1542,14 @@ let rec as_validator
           (#[@@@erasable] inv:inv_index)
           (#[@@@erasable] disj:disj_index)
           (#[@@@erasable] loc:loc_index)
-          #ha #b
-          (t:typ pk inv disj loc ha b)
+          #ha #b #ret_t
+          (t:typ pk inv disj loc ha b ret_t)
   : Tot (A.validate_with_action_t #nz #wk #pk #(as_type t)
             (as_parser t)
             (interp_inv inv)
             (interp_disj disj)
             (interp_loc loc)
-            ha b
+            ha b ret_t
             )
         (decreases t)
   = A.index_equations();
@@ -1576,7 +1560,7 @@ let rec as_validator
             (interp_inv inv)
             (interp_disj disj)
             (interp_loc loc)
-            ha b
+            ha b ret_t
     )
     with
     | T_false fn ->
@@ -1595,6 +1579,18 @@ let rec as_validator
           (as_validator typename t1)
           k2_const
           (as_validator typename t2)
+
+    | T_dep_pair_gen fn i t ->
+      let f = A.validate_with_action_f (dtyp_as_validator i) in
+      assert_norm (as_type (T_dep_pair_gen fn i t) == x:dtyp_as_type i & as_type (t (f x)));
+      assert_norm (as_parser (T_dep_pair_gen fn i t) ==
+                   P.parse_dep_pair (dtyp_as_parser i) (fun x -> as_parser (t (f x))));
+      assert (P.parse_dep_pair (dtyp_as_parser i) (fun x -> as_parser (t (f x))) == 
+        P.parse_dep_pair (dtyp_as_parser i) (fun x -> as_parser (t ((A.validate_with_action_f (A.validate_with_error_handler typename fn (dtyp_as_validator i))) x))));
+      A.validate_weaken_inv_loc (interp_inv inv) _ (interp_loc loc)
+          (A.validate_dep_pair_gen fn
+              (A.validate_with_error_handler typename fn (dtyp_as_validator i))
+              (fun (x:dtyp_as_ret_t i) -> as_validator typename (t x)))
     
     | T_dep_pair fn i t ->
       assert_norm (as_type (T_dep_pair fn i t) == x:dtyp_as_type i & as_type (t x));
@@ -1702,8 +1698,8 @@ let rec as_validator
           (action_as_action a))
 
     | T_with_dep_action fn i a ->
-      assert_norm (as_type (T_with_dep_action fn i a) == dtyp_as_type i);
-      assert_norm (as_parser (T_with_dep_action fn i a) == dtyp_as_parser i);
+      // assert_norm (as_type (T_with_dep_action fn i a) == dtyp_as_type i);
+      // assert_norm (as_parser (T_with_dep_action fn i a) == dtyp_as_parser i);
       A.validate_with_error_handler typename fn 
         (A.validate_weaken_inv_loc _ _ _ (
           A.validate_with_dep_action fn

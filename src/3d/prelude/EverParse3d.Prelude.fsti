@@ -73,10 +73,10 @@ val parse_pair (#nz1:_) (#k1:parser_kind nz1 WeakKindStrongPrefix) (#t1:_) (p1:p
   : Tot (parser (and_then_kind k1 k2) (t1 * t2))
 
 /// Parser: filter
-let refine t (f:t -> bool) = x:t{f x}
+let refine t (f:t -> GTot bool) = x:t{f x}
 
 inline_for_extraction noextract
-val parse_filter (#nz:_) (#wk: _) (#k:parser_kind nz wk) (#t:_) (p:parser k t) (f:(t -> bool))
+val parse_filter (#nz:_) (#wk: _) (#k:parser_kind nz wk) (#t:_) (p:parser k t) (f:(t -> GTot bool))
   : Tot (parser (filter_kind k) (refine t f))
 
 
