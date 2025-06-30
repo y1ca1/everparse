@@ -160,7 +160,7 @@ let rec cfield_of_field (env:env_t) (f0:field)
         warn_unsupported_field f0 "Unsupported variable-length field";
         None
     )
-  | RecordField fields i ->
+  | RecordField (fields, _) i ->
     let cfields = cfields_of_fields env fields in
     Some [Struct cfields, i, None]
   | SwitchCaseField sw i ->
@@ -169,7 +169,7 @@ let rec cfield_of_field (env:env_t) (f0:field)
 
 and cfields_of_switch_case (e:env_t) (sw:switch_case)
 : ML (list cfield)
-= let fields = List.map (function Case _ f -> f | DefaultCase f -> f) (snd sw) in 
+= let fields = List.map (function Case _ f _ -> f | DefaultCase f _ -> f) (snd sw) in 
   let cfields = cfields_of_fields e fields in
   let cfields = List.mapi (fun i cf -> number_field i cf) cfields in
   cfields
@@ -188,7 +188,7 @@ and cfields_of_fields (e:env_t) (fields:list field)
 let ctype_of_decl' (e:env_t) (d:decl)
 : ML (list ctype_decl)
 = match d.d_decl.v with
-  | Record names _gs _ps _w fields ->
+  | Record names _gs _ps _w (fields, _) ->
     if List.existsb Aligned? names.typedef_attributes
     then (
       let cfields = cfields_of_fields e fields in

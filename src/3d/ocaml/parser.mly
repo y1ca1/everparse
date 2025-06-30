@@ -350,9 +350,9 @@ atomic_field:
     }
 
 anonymous_struct_field:
-  | STRUCT LBRACE fields=fields RBRACE fn=IDENT
+  | STRUCT LBRACE record=record RBRACE fn=IDENT
     {
-        RecordField(fields, fn)
+        RecordField(record, fn)
     }
 
 anonymous_casetype_field:
@@ -381,12 +381,12 @@ static_conditional_body:
             in
             match fields with
             | [f] -> f
-            | _ -> with_range (RecordField(fields, dummy_identifier)) posn
+            | _ -> with_range (RecordField((fields, None), dummy_identifier)) posn
         in
         let f_then = as_field f_then ($startpos(f_then)) in
         let f_else = as_field f_else ($startpos(f_else)) in
-        let case_then = Case (tt, f_then) in
-        let case_else = DefaultCase f_else in
+        let case_then = Case (tt, f_then, None) in
+        let case_else = DefaultCase (f_else, None) in
         let e = with_range (Static e) ($startpos(e)) in
         SwitchCaseField ((e, [case_then; case_else]), dummy_identifier)
     }
@@ -429,6 +429,9 @@ fields:
   | fields=nonempty_list(field)
    { fields }
 
+record: 
+  | fs=fields return=option_of(RETURN e=expr SEMICOLON { e }) { (fs, return) }
+
 immutable_parameter:
   | t=typ i=IDENT { (t, i, Immutable) }
 
@@ -448,8 +451,8 @@ case_pattern:
   | c=constant { with_range (Constant c) $startpos(c) }
 
 case:
-  | CASE p=case_pattern COLON f=field { Case (p, f) }
-  | DEFAULT COLON f=field { DefaultCase f }
+  | CASE p=case_pattern COLON f=field ret=option_of(RETURN e=expr SEMICOLON { e }) { Case (p, f, ret) }
+  | DEFAULT COLON f=field ret=option_of(RETURN e=expr SEMICOLON { e }) { DefaultCase (f, ret) }
 
 cases:
   | cs=nonempty_list(case) { cs }
@@ -580,10 +583,10 @@ decl_no_range:
   | b=attributes TYPEDEF t=typ i=IDENT SEMICOLON
     { TypeAbbrev ([], t, i, [], []) }
   | b=attributes TYPEDEF STRUCT i=IDENT ps=parameters w=where_opt
-    LBRACE fields=fields
+    LBRACE record=record
     RBRACE j=IDENT p=typedef_pointer_name_opt SEMICOLON
     {  
-        Record(mk_td b i j p, [], ps, w, fields)
+        Record(mk_td b i j p, [], ps, w, record)
     }
   | b=attributes CASETYPE i=IDENT ps=parameters
     LBRACE SWITCH LPAREN e=IDENT RPAREN

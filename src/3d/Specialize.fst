@@ -64,13 +64,13 @@ let specialize_fields (e:B.env) (fields: list field)
   = match f.v with
     | AtomicField af -> 
       {f with v = AtomicField <| specialize_atomic_field e af }
-    | RecordField r i -> { f with v = RecordField (List.map specialize_field r) i }
+    | RecordField (fs, ret) i -> { f with v = RecordField (List.map specialize_field fs, ret) i }
     | SwitchCaseField sw i -> { f with v = SwitchCaseField (fst sw, List.map specialize_case <| snd sw) i }
   and specialize_case (c:case)
   : ML case
   = match c with
-    | Case e f -> Case e (specialize_field f)
-    | DefaultCase f -> DefaultCase (specialize_field f)
+    | Case e f ret -> Case e (specialize_field f) ret
+    | DefaultCase f ret -> DefaultCase (specialize_field f) ret
   in
   List.map specialize_field fields
 
@@ -80,7 +80,7 @@ let specialize_one (e:GlobalEnv.global_env) (d: decl { Specialize? d.d_decl.v })
   let Specialize qs i j = d.d_decl.v in
   let di, attrs = B.resolve_record_type e i in
   let nm = { i with v = { i.v with name = reserved_prefix ^ "specialized_" ^ j.v.name }} in
-  let Record names gs params wh fields = di.d_decl.v in
+  let Record names gs params wh (fields, ret) = di.d_decl.v in
   let names = { 
     names with
     typedef_name = nm; 
@@ -88,7 +88,7 @@ let specialize_one (e:GlobalEnv.global_env) (d: decl { Specialize? d.d_decl.v })
     typedef_ptr_abbrev = None 
   } in
   let fields = specialize_fields e fields in
-  let dj = Record names [] params wh fields in
+  let dj = Record names [] params wh (fields, ret) in
   let d = { d with d_decl = { d.d_decl with v = dj }} in
   d
 

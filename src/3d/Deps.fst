@@ -185,15 +185,20 @@ let scan_deps (fn:string) : ML scan_deps_t =
       (deps_of_opt (fun pc -> deps_of_probe_action pc.probe_block @ maybe_dep pc.probe_dest @ deps_of_expr pc.probe_dest_sz) af.field_probe)
   in
 
+  let deps_of_return (r:option expr) : ML (list string) =
+    match r with
+    | None -> []
+    | Some e -> deps_of_expr e in
+
   let rec deps_of_field (f:field) : ML (list string) = 
     match f.v with
     | AtomicField af -> deps_of_atomic_field af
-    | RecordField fs _ -> List.collect deps_of_field fs
+    | RecordField (fs, ret) _ -> List.collect deps_of_field fs @ deps_of_return ret
     | SwitchCaseField swc _ -> deps_of_switch_case swc
   and deps_of_case (c:case) : ML (list string) =
     match c with
-    | Case e f -> (deps_of_expr e)@(deps_of_field f)
-    | DefaultCase f -> deps_of_field f
+    | Case e f ret -> (deps_of_expr e)@(deps_of_field f)@(deps_of_return ret)
+    | DefaultCase f ret -> (deps_of_field f)@(deps_of_return ret)
     
   and deps_of_switch_case (sc:switch_case) : ML (list string) =
     let e, l = sc in
@@ -224,11 +229,12 @@ let scan_deps (fn:string) : ML scan_deps_t =
       List.collect deps_of_attribute attrs @
       deps_of_typ t
     | Enum _base_t _ l -> List.collect deps_of_enum_case l
-    | Record tdnames _generics params wopt flds ->
+    | Record tdnames _generics params wopt (flds, ret) ->
       (deps_of_typedef_names tdnames)@
       (deps_of_params params)@
       (deps_of_opt deps_of_expr wopt)@
-      (List.collect deps_of_field flds)
+      (List.collect deps_of_field flds)@
+      (deps_of_return ret)
     | CaseType tdnames _generics params sc ->
       (deps_of_typedef_names tdnames)@
       (deps_of_params params)@

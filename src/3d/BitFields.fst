@@ -134,7 +134,7 @@ let rec rewrite_field (env:B.global_env) (f:field)
   = match f.v with
     | AtomicField _ -> f
           
-    | RecordField fs field_name -> 
+    | RecordField (fs, ret) field_name -> 
       let gfs = group_bit_fields (rewrite_field env) fs in
       let fs, subst =
           List.fold_right
@@ -148,17 +148,17 @@ let rec rewrite_field (env:B.global_env) (f:field)
             ([], [])
       in
       let fs = List.map (subst_field (mk_subst subst)) fs in
-      { f with v = RecordField fs field_name }
+      { f with v = RecordField (fs, ret) field_name }
 
     | SwitchCaseField (e, cases) field_name ->
       let cases = 
           List.map
             (function
-              | Case p f ->
-                Case p (rewrite_field env f)
+              | Case p f ret ->
+                Case p (rewrite_field env f) ret
                     
-              | DefaultCase f ->
-                DefaultCase (rewrite_field env f))
+              | DefaultCase f ret ->
+                DefaultCase (rewrite_field env f) ret)
             cases
       in
       { f with v = SwitchCaseField (e, cases) field_name }
@@ -166,9 +166,9 @@ let rec rewrite_field (env:B.global_env) (f:field)
    
 let eliminate_one_decl (env:B.global_env) (d:decl) : ML decl =
   match d.d_decl.v with
-  | Record names generics params where fields ->
+  | Record names generics params where (fields, ret) ->
     let i = with_dummy_range (to_ident' "_") in
-    let { v = RecordField fields _ } = rewrite_field env (with_range (RecordField fields i) d.d_decl.range) in
+    let { v = RecordField (fields, ret) _ } = rewrite_field env (with_range (RecordField (fields, ret) i) d.d_decl.range) in
     List.iter (fun f ->
       Options.debug_print_string
             (Printf.sprintf "Bitfields: Field %s has comments <%s>\n"
@@ -183,7 +183,7 @@ let eliminate_one_decl (env:B.global_env) (d:decl) : ML decl =
         [{v=AtomicField af; range; comments}]
       | _ -> fields
     in
-    decl_with_v d (Record names generics params where fields)
+    decl_with_v d (Record names generics params where (fields, ret))
   | _ -> d
 
 let eliminate_decls (env:B.global_env) (ds:list decl) : ML (list decl) =

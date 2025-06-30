@@ -128,10 +128,10 @@ let rec gen_field (e:env_t) (f:field)
     let b, af' = gen_atomic_field e af in
     b, { f with v=AtomicField af' }
   )
-  | RecordField r i -> (
+  | RecordField (r, ret) i -> (
     let changed, r' = maybe_gen_l (gen_field e) r in
     if changed
-    then true, { f with v=RecordField r' i }
+    then true, { f with v=RecordField (r', ret) i }
     else false, f
   )
   | SwitchCaseField sw i -> (
@@ -145,27 +145,27 @@ let rec gen_field (e:env_t) (f:field)
 and gen_case (env:env_t) (c:case)
 : ML (bool & case)
 = match c with
-  | Case e f -> (
+  | Case e f ret -> (
     let b, f' = gen_field env f in
     if b
-    then b, Case e f'
+    then b, Case e f' ret
     else false, c
   )
-  | DefaultCase f -> (
+  | DefaultCase f ret -> (
     let b, f' = gen_field env f in
     if b
-    then b, DefaultCase f'
+    then b, DefaultCase f' ret
     else false, c
   )
 
 let rec gen_decl (env:env_t) (d:decl) : ML (option decl) =
   match d.d_decl.v with
-  | Record names gs params w fields ->
+  | Record names gs params w (fields, ret) ->
     let changed, fields32 = maybe_gen_l (gen_field env) fields in
     if changed
     then (
       let names_32 = gen_name_32 names in
-      let d32 = Record names_32 gs params w fields32 in
+      let d32 = Record names_32 gs params w (fields32, ret) in
       Some (mk_decl d32 d.d_decl.range [] false)
     )
     else None

@@ -294,7 +294,7 @@ let rec size_and_alignment_of_field (env:env_t)
       let s, a = size_and_alignment_of_atomic_field env af in
       f, s, a
 
-    | RecordField fields field_name ->
+    | RecordField (fields, ret) field_name ->
       let aligned_field_size
             (offset:size)
             (max_align:alignment)
@@ -335,7 +335,7 @@ let rec size_and_alignment_of_field (env:env_t)
       let size = size `sum_size` (Fixed pad_size) in
       let fields_rev = end_padding @ fields_rev in
       let fields = List.rev fields_rev in
-      { f with v = RecordField fields field_name }, 
+      { f with v = RecordField (fields, ret) field_name }, 
       size, 
       max_align
 
@@ -343,13 +343,13 @@ let rec size_and_alignment_of_field (env:env_t)
       let case_sizes =
         List.map
           (function
-            | Case p f -> 
+            | Case p f ret -> 
               let f, s, a = size_and_alignment_of_field env should_align diag_enclosing_type_name f in
-              Case p f, (s, a)
+              Case p f ret, (s, a)
             
-            | DefaultCase f ->
+            | DefaultCase f ret ->
               let f, s, a = size_and_alignment_of_field env should_align diag_enclosing_type_name f in
-              DefaultCase f, (s, a))
+              DefaultCase f ret, (s, a))
           (snd swc)
       in
       let cases, size_and_alignments = List.unzip case_sizes in

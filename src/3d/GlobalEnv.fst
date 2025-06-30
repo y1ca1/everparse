@@ -175,7 +175,7 @@ let find_probe_fn (g:global_env) r (pq:probe_function_type)
 let fields_of_type (g:global_env) (typename:ident)
 : ML (option (list field))
 = match H.try_find g.ge_h typename.v with
-  | Some ({d_decl={v=Record _ _ _ _ fields}}, _) -> Some fields
+  | Some ({d_decl={v=Record _ _ _ _ (fields, _)}}, _) -> Some fields
   | _ -> None
 
 let resolve_extern_coercion (g:global_env) (r:range) (t0 t1:typ)

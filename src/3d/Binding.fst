@@ -1647,6 +1647,7 @@ let rec weak_kind_of_field (env: env) (f: field) : ML weak_kind =
   | SwitchCaseField f _ -> weak_kind_of_switch_case env f
 
 and weak_kind_of_record env (fs:record) : ML weak_kind =
+  let (fs, ret) = fs in
   match fs with
   | [] -> WeakKindStrongPrefix
   | [a] -> weak_kind_of_field env a
@@ -1659,7 +1660,7 @@ and weak_kind_of_record env (fs:record) : ML weak_kind =
                            instead of %s"
                            (print_field a)
                            (print_weak_kind wk))
-    else weak_kind_of_record env q
+    else weak_kind_of_record env (q, ret)
 
 and weak_kind_of_switch_case env (s:switch_case) : ML weak_kind =
   let _, cases = s in
@@ -1667,8 +1668,8 @@ and weak_kind_of_switch_case env (s:switch_case) : ML weak_kind =
   
 and weak_kind_of_case (env: env) (c: case) : ML weak_kind =
   match c with
-  | DefaultCase f
-  | Case _ f -> weak_kind_of_field env f
+  | DefaultCase f _ 
+  | Case _ f _ -> weak_kind_of_field env f
 
 #pop-options
 
@@ -1702,7 +1703,7 @@ let check_switch (check_field:check_field_t) (env:env) (s:switch_case)
 
     in
     let check_case (c:case{Case? c}) : ML case =
-      let Case pat f = c in
+      let Case pat f ret = c in
       let pat, pat_t = check_expr env pat in
       let f = check_field env f in
       let pat = //check type of patterns
@@ -1742,12 +1743,12 @@ let check_switch (check_field:check_field_t) (env:env) (s:switch_case)
                      pat.range;
           pat
       in
-      Case pat f
+      Case pat f ret
     in
     let check_default_case (c:case{DefaultCase? c}) : ML case =
-       let DefaultCase f = c in
+       let DefaultCase f ret = c in
        let f = check_field env f in
-       DefaultCase f
+       DefaultCase f ret
     in
     let cases =
       List.map (fun (o:case) -> if Case? o then check_case o else check_default_case o) cases in
@@ -1755,8 +1756,8 @@ let check_switch (check_field:check_field_t) (env:env) (s:switch_case)
       List.fold_right
         (fun case default_ok ->
            match case with
-           | Case _ _ -> false
-           | DefaultCase f ->
+           | Case _ _ _ -> false
+           | DefaultCase f _ ->
               if default_ok then false
               else raise (error "default is only allowed in the last case"
                                 f.range))
@@ -1771,10 +1772,18 @@ let is_bound_locally (env:env) (i:ident) =
   | None -> false
   | Some _ -> true
   
+let check_return (env:env) (ret:option expr) : ML (option expr & typ) =
+  match ret with
+  | None -> None, tunit
+  | Some e ->
+    let e, t = check_expr env e in
+    Some e, t
+
 let rec check_record (check_field:check_field_t) (env:env) (fs:record)
   : ML record
   = let env = copy_env env in //locals of a record do not escape the record
   
+    let fs, ret = fs in
     (* Elaborate and check each field in order;
        Checking each field extends the local environment with the name of that field *)
     let fields = 
@@ -1794,6 +1803,7 @@ let rec check_record (check_field:check_field_t) (env:env) (fs:record)
             { f with v = SwitchCaseField swc i})
         fs
     in
+    let (ret, _) = check_return env ret in
             
     (* Infer which of the fields are dependent by seeing which of them are used in refinements *)
     let nfields = List.length fields in
@@ -1823,7 +1833,7 @@ let rec check_record (check_field:check_field_t) (env:env) (fs:record)
                     subsequent fields cannot depend on it" af.range
         else { f with v = AtomicField af })
     in
-    fields
+    fields, ret
 
 
 let name_of_field (f:field) : ident =
@@ -1849,9 +1859,9 @@ let rec check_field (env:env) (f:field)
     | AtomicField af ->
       { f with v = AtomicField (check_atomic_field env false af) }
 
-    | RecordField fs i ->
+    | RecordField (fs, ret) i ->
       check_field_names_unique fs;
-      { f with v = RecordField (check_record check_field env fs) i }
+      { f with v = RecordField (check_record check_field env (fs, ret)) i }
 
     | SwitchCaseField swc i ->
       { f with v = SwitchCaseField (check_switch check_field env swc) i }    
@@ -1895,10 +1905,10 @@ let elaborate_bit_fields env (fields:list field)
         | hd::tl ->
           begin
           match hd.v with
-          | RecordField fs hd_fieldname -> 
+          | RecordField (fs, ret) hd_fieldname -> 
             next_bf_index();
             let fs = aux None fs in
-            let hd = { hd with v = RecordField fs hd_fieldname } in
+            let hd = { hd with v = RecordField (fs, ret) hd_fieldname } in
             next_bf_index();          
             hd :: aux None tl
 
@@ -1907,13 +1917,13 @@ let elaborate_bit_fields env (fields:list field)
             let cases = 
               List.map 
                 (function 
-                  | Case p f -> 
+                  | Case p f ret -> 
                     let [f] = aux None [f] in
-                    Case p f
+                    Case p f ret
                     
-                  | DefaultCase f ->
+                  | DefaultCase f ret ->
                     let [f] = aux None [f] in
-                    DefaultCase f)
+                    DefaultCase f ret)
                 cases
             in
             next_bf_index();          
@@ -2111,7 +2121,7 @@ let elaborate_record_decl (e:global_env)
                           (generics:list generic_param)
                           (params:list param)
                           (where:option expr)
-                          (fields:list field)
+                          (fields:record)
                           (range:range)
                           (comments:comments)
                           (is_exported:bool)
@@ -2153,20 +2163,20 @@ let elaborate_record_decl (e:global_env)
 
     (* Elaborate and check each field in order;
        Checking each field extends the local environment with the name of that field *)
-    let fields = check_record check_field env fields in
+    let (fields, ret) = check_record check_field env fields in
 
     let fields = maybe_unit_field@fields in
 
     let fields = elaborate_bit_fields env fields in
 
-    let d = mk_decl (Record tdnames generics params None fields) range comments is_exported in
+    let d = mk_decl (Record tdnames generics params None (fields, ret)) range comments is_exported in
 
     let attrs = {
         may_fail = false; //only its fields may fail; not the struct itself
         integral = None;
         bit_order = None;
         has_reader = false;
-        parser_weak_kind = weak_kind_of_record env fields;
+        parser_weak_kind = weak_kind_of_record env (fields, ret);
         parser_kind_nz = None
       }
     in
@@ -2448,7 +2458,7 @@ let initial_global_env mname =
     let td_name =
       { typedef_name = i; typedef_abbrev = i; typedef_ptr_abbrev = None; typedef_attributes = [] }
     in
-    mk_decl (Record td_name [] [] None []) dummy_range [] true
+    mk_decl (Record td_name [] [] None ([], None)) dummy_range [] true
   in
   let _type_names =
     [

@@ -180,11 +180,14 @@ let simplify_atomic_field (env:T.env_t) (f:atomic_field)
                        field_probe = fp } in
     { f with v = sf }
 
+let simplify_return (env:T.env_t) (r:option expr) : ML (option expr) =
+  map_opt (simplify_expr env) r
+
 let rec simplify_field (env:T.env_t) (f:field)
   : ML field
   = match f.v with
     | AtomicField af -> { f with v = AtomicField (simplify_atomic_field env af) }
-    | RecordField fs i -> { f with v = RecordField (List.map (simplify_field env) fs) i }
+    | RecordField (fs, ret) i -> { f with v = RecordField (List.map (simplify_field env) fs, simplify_return env ret) i }
     | SwitchCaseField swc i -> { f with v = SwitchCaseField (simplify_switch_case env swc) i }
 
 and simplify_switch_case (env:T.env_t) (c:switch_case)
@@ -193,8 +196,8 @@ and simplify_switch_case (env:T.env_t) (c:switch_case)
   let e = simplify_expr env e in
   let cases =
     List.map 
-      (function Case e f -> Case (simplify_expr env e) (simplify_field env f)
-              | DefaultCase f -> DefaultCase (simplify_field env f))
+      (function Case e f ret -> Case (simplify_expr env e) (simplify_field env f) (simplify_return env ret)
+              | DefaultCase f ret -> DefaultCase (simplify_field env f) (simplify_return env ret))
       cases
   in
   e, cases
@@ -264,13 +267,14 @@ let simplify_decl (env:T.env_t) (d:decl) : ML decl =
     let t = simplify_typ env t in
     decl_with_v d (Enum t i cases)
 
-  | Record tdnames generics params wopt fields ->
+  | Record tdnames generics params wopt (fields, ret) ->
     let generics = List.map (simplify_generic env) generics in
     let tdnames = simplify_typedef_names env tdnames in
     let params = simplify_params env params in
     let fields = List.map (simplify_field env) fields in
+    let ret = simplify_return env ret in
     let wopt = match wopt with | None -> None | Some w -> Some (simplify_expr env w) in
-    decl_with_v d (Record tdnames generics params wopt fields)
+    decl_with_v d (Record tdnames generics params wopt (fields, ret))
 
   | CaseType tdnames generics params switch ->
     let generics = List.map (simplify_generic env) generics in

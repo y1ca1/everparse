@@ -1259,7 +1259,7 @@ let rec field_as_grouped_fields (f:A.field)
       let sf, ds = translate_atomic_field af in
       sf.sf_ident, NonDependentField sf None, ds
 
-    | RecordField fs field_name ->
+    | RecordField (fs, ret) field_name ->
       let gfs, ds =
         List.fold_right #_ #(option grouped_fields & T.decls)
           (fun f (gfs, ds_out) ->
@@ -1300,21 +1300,21 @@ let rec field_as_grouped_fields (f:A.field)
         then 
           let rest, last = List.splitAt (List.length cases - 1) cases in
           match last with
-          | [DefaultCase f] ->
+          | [DefaultCase f ret] ->
             let _, gfs, ds = field_as_grouped_fields f in
             rest, gfs, ds
           
           | _ -> 
             cases, false_field, []
-          else
-            cases, false_field, []
+        else
+          cases, false_field, []
       in
       let gfs, ds =
         List.fold_right
           (fun case (else_group, decls') ->
             match case with
-            | DefaultCase _ -> failwith "Impossible"
-            | Case p f ->
+            | DefaultCase _ _ -> failwith "Impossible"
+            | Case p f ret ->
               let _, gfs, decls = field_as_grouped_fields f in
               let guard =
                 match p.v with

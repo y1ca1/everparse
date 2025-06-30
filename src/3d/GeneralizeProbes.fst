@@ -182,7 +182,7 @@ let rec needs_probe_field (maybe_gen:bool) (enclosing_type:typedef_names) (e:env
             e, changed || changed'
       else e, changed
     )
-  | RecordField r _ ->
+  | RecordField (r, _) _ ->
     fold_left_changed (needs_probe_field maybe_gen enclosing_type) e r
   | SwitchCaseField sw _ ->
     fold_left_changed (needs_probe_case maybe_gen enclosing_type) e (snd sw)
@@ -190,8 +190,8 @@ let rec needs_probe_field (maybe_gen:bool) (enclosing_type:typedef_names) (e:env
 and needs_probe_case (maybe_generalize:bool) (enclosing_type:typedef_names) (e:env) (c:case)
 : ML (env & bool)
 = match c with
-  | Case _ f -> needs_probe_field maybe_generalize enclosing_type e f
-  | DefaultCase f -> needs_probe_field maybe_generalize enclosing_type e f
+  | Case _ f _ -> needs_probe_field maybe_generalize enclosing_type e f
+  | DefaultCase f _ -> needs_probe_field maybe_generalize enclosing_type e f
 
 let need_probe_decl (e:env) (d:decl) 
 : ML (env & bool)
@@ -201,7 +201,7 @@ let need_probe_decl (e:env) (d:decl)
     should_generate_probe e n
   in
   match d.d_decl.v with
-  | Record names _ _ _ fields ->
+  | Record names _ _ _ (fields, _) ->
     if should_descend names
     then fold_left_changed (needs_probe_field maybe_generalize names) e fields
    else e, false
@@ -387,10 +387,10 @@ let rec generalize_probe_field (e:env) (path_prefix:string) (f:field)
         sig0@[head_type, probe_sig]
     )
   )
-  | RecordField r i ->
+  | RecordField (r, ret) i ->
     let path_prefix = path_prefix ^ print_ident i in
     let r, gs, insts = generalize_probe_fields e path_prefix r in
-    { f with v = RecordField r i }, gs, insts
+    { f with v = RecordField (r, ret) i }, gs, insts
   | SwitchCaseField sw i ->
     let path_prefix = path_prefix ^ print_ident i in
     let cs, gs, insts = generalize_probe_cases e path_prefix (snd sw) in
@@ -399,12 +399,12 @@ let rec generalize_probe_field (e:env) (path_prefix:string) (f:field)
 and generalize_probe_case (e:env) (path_prefix:string) (c:case)
 : ML (case & list generic_param & generalized_signature)
 = match c with
-  | Case ex f ->
+  | Case ex f ret ->
     let f, gs, insts = generalize_probe_field e path_prefix f in
-    Case ex f, gs, insts
-  | DefaultCase f ->
+    Case ex f ret, gs, insts
+  | DefaultCase f ret ->
     let f, gs, insts = generalize_probe_field e path_prefix f in
-    DefaultCase f, gs, insts
+    DefaultCase f ret, gs, insts
 
 and generalize_probe_fields (e:env) (path_prefix:string) (fs:list field) 
 : ML (list field & list generic_param & generalized_signature)
@@ -507,7 +507,7 @@ let do_generalization (e:env) (d:decl)
     (Printf.sprintf "Generalize_probe_decls for %s\n"
       (print_ident <| id_of_decl d));
   match d.d_decl.v with
-  | Record names gs params w fields -> (
+  | Record names gs params w (fields, ret) -> (
     let fields, gs', sig = generalize_probe_fields e "" fields in
     match gs' with
     | [] -> [d]
@@ -523,7 +523,7 @@ let do_generalization (e:env) (d:decl)
         let fields = List.map (subst_field s) fields in
         let d = { d with 
                 d_decl = { d.d_decl with 
-                v=Record names gs params w fields }} in
+                v=Record names gs params w (fields, ret) }} in
         Options.debug_print_string
           (Printf.sprintf
             "<After substitution>:\n%s\n</After substitution>"
@@ -535,7 +535,7 @@ let do_generalization (e:env) (d:decl)
         let generalized_record =
           { d with 
             d_decl = { d.d_decl with 
-            v=Record gen_name (gs'@gs) params w fields }}
+            v=Record gen_name (gs'@gs) params w (fields, ret) }}
         in
         [generalized_record]
       )

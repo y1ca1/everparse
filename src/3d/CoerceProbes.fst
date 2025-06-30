@@ -287,12 +287,12 @@ let check_scope_type (env:env) (field_name:ident) (t:typ)
     ))
   fvs
 
-let rec coerce_fields (e:env) (r0 r1:record)
+let rec coerce_fields (e:env) (r0 r1:list field)
 : ML probe_action
 = match r0, r1 with
   | hd0::tl0, hd1::tl1 -> (
     match hd0.v, hd1.v with
-    | RecordField r0 i0, RecordField r1 i1 -> (
+    | RecordField (r0, ret0) i0, RecordField (r1, ret1) i1 -> (
       if not (eq_idents i0 i1)
       then failwith <|
             Printf.sprintf
@@ -481,7 +481,7 @@ and coerce_switch_case (e:env) (sw0 sw1:switch_case)
       Options.debug_print_string <|
         Printf.sprintf "Coercing switch case %s to %s\n" (print_case c0) (print_case c1);
       match c0, c1 with
-      | Case e0 f0, Case e1 f1 -> (
+      | Case e0 f0 ret0, Case e1 f1 ret1 -> (
         if not (eq_expr e0 e1)
         then failwith "Cannot coerce switch cases with different case expressions";
         with_dummy_range <|
@@ -490,7 +490,7 @@ and coerce_switch_case (e:env) (sw0 sw1:switch_case)
           (coerce_fields e [f0] [f1])
           k
       )
-      | DefaultCase f0, DefaultCase f1 -> (
+      | DefaultCase f0 ret0, DefaultCase f1 ret1 -> (
         coerce_fields e [f0] [f1]
       )
       | _ -> failwith "Cannot coerce switch cases with different case types"
@@ -553,11 +553,11 @@ let replace_stub (e:B.env) (d:decl { CoerceProbeFunctionStub? d.d_decl.v })
     let e = { benv=e; params=B.params_of_decl d } in
     let coercion =
       match d0.d_decl.v, d1.d_decl.v with
-      | Record _ _ _ _ r0, Record _ _ _ _ r1 ->
+      | Record _ _ _ _ (r0, ret0), Record _ _ _ _ (r1, ret1) ->
         Options.debug_print_string <|
           Printf.sprintf "Coercing record %s to %s\nfields lhs: %s\nfields rhs: %s" 
             (print_ident t0) (print_ident t1)
-            (print_record r0) (print_record r1);
+            (print_record (r0, ret0)) (print_record (r1, ret1));
         coerce_fields e r0 r1
       | CaseType _ _ params0 r0, CaseType _ _ params1 r1 ->
         if List.length params0 <> List.length params1

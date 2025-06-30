@@ -108,7 +108,7 @@ let rec simplify_field (env:env) (f:field)
   : ML field
   = match f.v with
     | AtomicField f -> { f with v = AtomicField (simplify_atomic_field env f) }
-    | RecordField fs i -> { f with v = RecordField (List.map (simplify_field env) fs) i }
+    | RecordField (fs, ret) i -> { f with v = RecordField ((List.map (simplify_field env) fs), ret) i }
     | SwitchCaseField swc i -> { f with v = SwitchCaseField (simplify_switch_case env swc) i }
 
 and simplify_switch_case (env:env) (swc:switch_case) 
@@ -116,8 +116,8 @@ and simplify_switch_case (env:env) (swc:switch_case)
   = let e, cases = swc in
     let cases =
       List.map
-        (function Case p f -> Case p (simplify_field env f)
-                | DefaultCase f -> DefaultCase (simplify_field env f))
+        (function Case p f ret -> Case p (simplify_field env f) ret
+                | DefaultCase f ret -> DefaultCase (simplify_field env f) ret)
         cases
     in
     e, cases
@@ -177,7 +177,7 @@ let simplify_decl (env:env) (d:decl) : ML decl =
     H.insert env i.v ([], [], af);
     d
     
-  | Record tdnames generics params None [{v = AtomicField field; range; comments}] -> //singleton
+  | Record tdnames generics params None ([{v = AtomicField field; range; comments}], ret) -> //singleton
     begin
     match field.v with
     | { field_array_opt = FieldArrayQualified _ }
@@ -189,12 +189,12 @@ let simplify_decl (env:env) (d:decl) : ML decl =
       let af = simplify_atomic_field env field in
       H.insert env tdnames.typedef_name.v (generics, params, field);
       let field = with_range_and_comments (AtomicField af) range comments in
-      decl_with_v d (Record tdnames generics params None [field])
+      decl_with_v d (Record tdnames generics params None ([field], ret))
     end
 
-  | Record tdnames generics params wopt fields ->
+  | Record tdnames generics params wopt (fields, ret) ->
     let fields = List.map (simplify_field env) fields in
-    decl_with_v d (Record tdnames generics params wopt fields)
+    decl_with_v d (Record tdnames generics params wopt (fields, ret))
 
   | CaseType tdnames generics params switch ->
     let switch = simplify_switch_case env switch in

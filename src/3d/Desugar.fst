@@ -393,10 +393,16 @@ let resolve_probe_call env pc =
     probe_init = map_opt (resolve_ident env) pc.probe_init;
   }
 
+let resolve_return (env:qenv) (ret:option expr) : ML (option expr) =
+  map_opt (resolve_expr env) ret
+
 let rec resolve_field (env:qenv) (ff:field) : ML (field & qenv) =
   match ff.v with
   | AtomicField f -> let f, e = resolve_atomic_field env f in {ff with v = AtomicField f}, e
-  | RecordField f i -> let fs, _ = resolve_fields env f in  {ff with v = RecordField fs i}, env //record fields are not in scope outside the record
+  | RecordField (fs, ret) i -> 
+    let fs, _ = resolve_fields env fs in
+    let ret = resolve_return env ret in
+    {ff with v = RecordField (fs, ret) i}, env //record fields are not in scope outside the record
   | SwitchCaseField f i -> let f = resolve_switch_case env f in {ff with v = SwitchCaseField f i}, env
 
 and resolve_atomic_field (env:qenv) (f:atomic_field) : ML (atomic_field & qenv) =
@@ -427,8 +433,8 @@ and resolve_fields (env:qenv) (flds:list field) : ML (list field & qenv) =
 and resolve_switch_case (env:qenv) (sc:switch_case) : ML switch_case = //case fields do not escape their scope
   let resolve_case (env:qenv) (c:case) : ML case =
     match c with
-    | Case e f -> Case (resolve_expr env e) (fst (resolve_field env f))
-    | DefaultCase f -> DefaultCase (fst (resolve_field env f)) in
+    | Case e f ret -> Case (resolve_expr env e) (fst (resolve_field env f)) (resolve_return env ret)
+    | DefaultCase f ret -> DefaultCase (fst (resolve_field env f)) (resolve_return env ret) in
 
   let e, l = sc in
   resolve_expr env e, List.map (resolve_case env) l
@@ -486,13 +492,14 @@ let resolve_decl' (env:qenv) (d:decl') : ML decl' =
     TypeAbbrev attrs (resolve_typ env t) (resolve_ident env i) gs ps
   | Enum t i ecs ->
     Enum (resolve_typ env t) (resolve_ident env i) (List.map (resolve_enum_case env) ecs)
-  | Record td_names generics params where flds ->
+  | Record td_names generics params where (flds, ret) ->
     let td_names = resolve_typedef_names env td_names in
     let env = push_generics env generics in
     let params, env = resolve_params env params in
     let where = map_opt (resolve_expr env) where in
     let flds, _ = resolve_fields env flds in
-    Record td_names generics params where flds
+    let ret = resolve_return env ret in
+    Record td_names generics params where (flds, ret)
   | CaseType td_names generics params sc ->
     let td_names = resolve_typedef_names env td_names in
     let env = push_generics env generics in

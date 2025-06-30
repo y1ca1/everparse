@@ -573,11 +573,11 @@ and field' =
 
 and field = with_meta_t field'
 
-and record = list field
+and record = list field & option expr //optional return values for the record
 
 and case =
-  | Case : expr -> field -> case
-  | DefaultCase : field -> case
+  | Case : expr -> field -> (ret: option expr) -> case
+  | DefaultCase : field -> (ret: option expr) -> case
 
 and switch_case = expr & list case
 
@@ -986,6 +986,11 @@ let print_bitfield (bf:option field_bitwidth_t) =
      (print_typ a.bitfield_type)
      a.bitfield_from a.bitfield_to
 
+let print_return (r:option expr) : ML string =
+  match r with
+  | None -> ""
+  | Some e -> Printf.sprintf "return %s;" (print_expr e)
+
 let rec print_field' (f:field) (with_comments:bool) : ML string =
   let field = 
     match f.v with
@@ -1002,8 +1007,10 @@ let rec print_field' (f:field) (with_comments:bool) : ML string =
 and print_field f : ML string = print_field' f true 
 
 and print_record (f:record) : ML string = 
-  List.map print_field f |>
-  String.concat ";\n"
+  let (fs, ret) = f in
+  let fs = List.map print_field fs in
+  let ret = print_return ret in
+  Printf.sprintf "{%s\n%s}" (String.concat ";\n" fs) ret
 
 and print_atomic_field (f:atomic_field) : ML string =
   let print_array eq : Tot string =
@@ -1113,13 +1120,15 @@ and print_switch_case (s:switch_case) : ML string =
 
 and print_case (c:case) : ML string =
     match c with
-    | Case e f ->
-      Printf.sprintf "case %s: %s;"
+    | Case e f ret ->
+      Printf.sprintf "case %s: %s; %s"
         (print_expr e)
         (print_field f)
-    | DefaultCase f ->
-      Printf.sprintf "default: %s;"
+        (print_return ret)
+    | DefaultCase f ret ->
+      Printf.sprintf "default: %s; %s"
         (print_field f)
+        (print_return ret)
 
 let option_to_string (f:'a -> ML string) (x:option 'a) : ML string = print_opt x f
 
@@ -1191,7 +1200,7 @@ let print_decl' (d:decl') : ML string =
                     (print_generics generics)
                     (print_params_nl params)
                     (match wopt with | None -> "" | Some e -> " where " ^ print_expr e)
-                    (String.concat "\n" (List.map print_field fields))
+                    (print_record fields)
                     (ident_to_string td.typedef_abbrev)
                     (option_to_string ident_to_string td.typedef_ptr_abbrev)
   | CaseType td generics params switch_case ->
@@ -1344,12 +1353,12 @@ let rec field_has_out_expr (f: field) : Tot bool =
   match f.v with
   | AtomicField af ->
     atomic_field_has_out_expr af
-  | RecordField fs _ ->
+  | RecordField (fs, _) _ ->
     record_has_out_expr fs
   | SwitchCaseField sw _ ->
     switch_case_has_out_expr sw
 
-and record_has_out_expr (fs: record) : Tot bool =
+and record_has_out_expr (fs: list field) : Tot bool =
   match fs with
   | [] -> false
   | f :: fs' ->
@@ -1371,15 +1380,15 @@ and cases_have_out_expr (cs: list case) : Tot bool =
 
 and case_has_out_expr (c: case) : Tot bool =
   match c with
-  | Case _ f
-  | DefaultCase f
+  | Case _ f _
+  | DefaultCase f _
     ->
     field_has_out_expr f
 
 /// Matches parse_field
 let decl_has_out_expr (d: decl) : Tot bool =
   match d.d_decl.v with
-  | Record _ _ _ _ ast_fields ->
+  | Record _ _ _ _ (ast_fields, _) ->
     record_has_out_expr ast_fields
   | CaseType _ _ _ switch_case ->
     switch_case_has_out_expr switch_case
@@ -1666,12 +1675,17 @@ and subst_atomic_field (s:subst) (f:atomic_field) : ML atomic_field =
       field_probe = pa
   } in
   { f with v = sf }  
-and subst_record (s:subst) (f:record) : ML record   
-  = List.map (subst_field s) f
+and subst_return (s:subst) (r:option expr) : ML (option expr) =
+  map_opt (subst_expr s) r
+and subst_record (s:subst) (fs:record) : ML record = 
+  let (fs, ret) = fs in
+  let fs = List.map (subst_field s) fs in
+  let ret = subst_return s ret in
+  (fs, ret)
 and subst_case (s:subst) (c:case) : ML case =
   match c with
-  | Case e f -> Case (subst_expr s e) (subst_field s f)
-  | DefaultCase f -> DefaultCase (subst_field s f)
+  | Case e f ret -> Case (subst_expr s e) (subst_field s f) (subst_return s ret)
+  | DefaultCase f ret -> DefaultCase (subst_field s f) (subst_return s ret)
 and subst_switch_case (s:subst) (sc:switch_case) : ML switch_case =
   subst_expr s (fst sc), List.map (subst_case s) (snd sc)
 let subst_params (s:subst) (p:list param) : ML (list param) =
@@ -1684,8 +1698,8 @@ let subst_decl' (s:subst) (d:decl') : ML decl' =
   | TypeAbbrev attrs t i generics params ->
     TypeAbbrev attrs (subst_typ s t) i generics (subst_params s params)
   | Enum t i is -> Enum (subst_typ s t) i is
-  | Record names generics params where fields ->
-    Record names generics (subst_params s params) (map_opt (subst_expr s) where) (List.map (subst_field s) fields)
+  | Record names generics params where (fields, ret) ->
+    Record names generics (subst_params s params) (map_opt (subst_expr s) where) (List.map (subst_field s) fields, subst_return s ret)
   | CaseType names generics params cases ->
     CaseType names generics (subst_params s params) (subst_switch_case s cases)
   | ProbeFunction i params a tn -> ProbeFunction i (subst_params s params) (subst_probe_action s a) tn
