@@ -1,0 +1,23 @@
+typedef struct _SimpleReturn {
+  UINT32 x;
+  UINT32 y;
+  return x;
+} SimpleReturn;
+
+typedef SimpleReturn Sample;
+
+typedef struct _P {
+  Sample fst as len;
+  Sample snd;
+  UINT8 payload[len];
+} P;
+
+typedef struct _Q {
+  Sample fst;
+  Sample snd;
+} Q;
+
+typedef struct _Q {
+  Sample fst as len{len <= 1000};
+  UINT8 payload[len];
+} Q;
